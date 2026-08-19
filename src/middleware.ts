@@ -33,20 +33,24 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-  // Protect /admin and /student routes
-  if (pathname.startsWith('/admin') || pathname.startsWith('/student')) {
+  // Intercept any request to /admin/*
+  if (pathname.startsWith('/admin')) {
     if (!user) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
 
     const role = user.user_metadata?.role
 
-    if (pathname.startsWith('/admin') && role !== 'admin') {
-      return NextResponse.redirect(new URL('/unauthorized', request.url))
+    // If the authenticated user's role is not explicitly 'admin', redirect to student dashboard immediately
+    if (role !== 'admin') {
+      return NextResponse.redirect(new URL('/student', request.url))
     }
+  }
 
-    if (pathname.startsWith('/student') && role !== 'student') {
-      return NextResponse.redirect(new URL('/unauthorized', request.url))
+  // Protect /student routes
+  if (pathname.startsWith('/student')) {
+    if (!user) {
+      return NextResponse.redirect(new URL('/login', request.url))
     }
   }
 

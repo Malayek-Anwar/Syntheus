@@ -34,18 +34,20 @@ export async function login(formData: FormData) {
 export async function signup(formData: FormData) {
   const email = formData.get('email') as string
   const password = formData.get('password') as string
-  const role = formData.get('role') as string
   const department = formData.get('department') as string | null
   const semester = formData.get('semester') as string | null
   const supabase = await createClient()
 
+  // Security: All public signups are strictly defaulted to 'student'.
+  // Admin provisioning is handled manually by administrators.
   const { error } = await supabase.auth.signUp({
     email,
     password,
     options: {
       data: {
-        role,
-        ...(role === 'student' && { department, semester }),
+        role: 'student',
+        department: department || '',
+        semester: semester || '',
       }
     }
   })
@@ -54,13 +56,7 @@ export async function signup(formData: FormData) {
     redirect(`/login?message=${encodeURIComponent(error.message)}`)
   }
 
-  if (role === 'admin') {
-    redirect('/admin')
-  } else if (role === 'student') {
-    redirect('/student')
-  } else {
-    redirect('/')
-  }
+  redirect('/student')
 }
 
 export async function signout() {

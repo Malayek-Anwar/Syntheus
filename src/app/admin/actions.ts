@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/utils/supabase/server'
+import { verifyAdminAction } from '@/utils/auth'
 import { getErrorMessage } from '@/utils/errors'
 import { extractPdfText } from '@/utils/pdf'
 import OpenAI from 'openai'
@@ -22,12 +23,18 @@ export type ExtractedData = {
 
 export async function parsePDF(formData: FormData): Promise<{ success: boolean; data?: ExtractedData; error?: string }> {
   try {
+    // 0. Strict server-side authorization check (403 Forbidden if not admin)
+    const auth = await verifyAdminAction()
+    if (!auth.authorized) {
+      return { success: false, error: auth.error || '403 Forbidden: Admin privileges required' }
+    }
+
     const file = formData.get('file') as File
     if (!file) {
       return { success: false, error: 'No file provided' }
     }
 
-    const supabase = await createClient()
+    const supabase = auth.supabase
 
     // 1. Upload to Supabase Storage
     const fileExt = file.name.split('.').pop()
@@ -130,7 +137,13 @@ function chunkText(text: string, maxWords: number = 400): string[] {
 
 export async function publishDocument(data: ExtractedData) {
   try {
-    const supabase = await createClient()
+    // 0. Strict server-side authorization check (403 Forbidden if not admin)
+    const auth = await verifyAdminAction()
+    if (!auth.authorized) {
+      return { success: false, error: auth.error || '403 Forbidden: Admin privileges required' }
+    }
+
+    const supabase = auth.supabase
 
     // 1. Insert parent document
     const { data: docData, error: docError } = await supabase
@@ -189,7 +202,13 @@ export async function publishDocument(data: ExtractedData) {
 
 export async function deletePublishedDocument(id: string, fileUrl: string) {
   try {
-    const supabase = await createClient()
+    // 0. Strict server-side authorization check (403 Forbidden if not admin)
+    const auth = await verifyAdminAction()
+    if (!auth.authorized) {
+      return { success: false, error: auth.error || '403 Forbidden: Admin privileges required' }
+    }
+
+    const supabase = auth.supabase
 
     // 1. Delete from Storage
     // Extract filename from URL

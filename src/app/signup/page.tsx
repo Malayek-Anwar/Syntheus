@@ -1,19 +1,19 @@
 'use client'
 
-import { useState } from 'react'
 import { signup } from '@/app/login/actions'
 import Link from 'next/link'
 
 export default function SignupPage() {
-  const [role, setRole] = useState('student')
-
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-md space-y-8 bg-white p-10 shadow-sm border border-gray-200 rounded-xl">
         <div>
           <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
-            Create an account
+            Create a Student Account
           </h2>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            Enter your details to access your personalized campus feed
+          </p>
         </div>
         <form className="mt-8 space-y-6" action={signup}>
           <div className="space-y-4">
@@ -43,63 +43,43 @@ export default function SignupPage() {
               />
             </div>
             <div>
-              <label htmlFor="role" className="block text-sm font-medium text-gray-700">
-                Role
+              <label htmlFor="department" className="block text-sm font-medium text-gray-700">
+                Department
               </label>
               <select
-                id="role"
-                name="role"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
+                id="department"
+                name="department"
+                required
                 className="mt-1 block w-full rounded-md border-0 py-2.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-black sm:text-sm sm:leading-6"
               >
-                <option value="student">Student</option>
-                <option value="admin">Admin</option>
+                <option value="">Select Department</option>
+                <option value="Computer Science">Computer Science</option>
+                <option value="Electrical Engineering">Electrical Engineering</option>
+                <option value="Mechanical Engineering">Mechanical Engineering</option>
+                <option value="Civil Engineering">Civil Engineering</option>
               </select>
             </div>
-
-            {role === 'student' && (
-              <>
-                <div>
-                  <label htmlFor="department" className="block text-sm font-medium text-gray-700">
-                    Department
-                  </label>
-                  <select
-                    id="department"
-                    name="department"
-                    required
-                    className="mt-1 block w-full rounded-md border-0 py-2.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-black sm:text-sm sm:leading-6"
-                  >
-                    <option value="">Select Department</option>
-                    <option value="Computer Science">Computer Science</option>
-                    <option value="Electrical Engineering">Electrical Engineering</option>
-                    <option value="Mechanical Engineering">Mechanical Engineering</option>
-                    <option value="Civil Engineering">Civil Engineering</option>
-                  </select>
-                </div>
-                <div>
-                  <label htmlFor="semester" className="block text-sm font-medium text-gray-700">
-                    Semester
-                  </label>
-                  <select
-                    id="semester"
-                    name="semester"
-                    required
-                    className="mt-1 block w-full rounded-md border-0 py-2.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-black sm:text-sm sm:leading-6"
-                  >
-                    <option value="">Select Semester</option>
-                    <option value="Semester 1">Semester 1</option>
-                    <option value="Semester 2">Semester 2</option>
-                    <option value="Semester 3">Semester 3</option>
-                    <option value="Semester 4">Semester 4</option>
-                    <option value="Semester 5">Semester 5</option>
-                    <option value="Semester 6">Semester 6</option>
-                    <option value="Semester 7">Semester 7</option>
-                    <option value="Semester 8">Semester 8</option>
-                  </select>
-                </div>
-              </>
-            )}
+            <div>
+              <label htmlFor="semester" className="block text-sm font-medium text-gray-700">
+                Semester
+              </label>
+              <select
+                id="semester"
+                name="semester"
+                required
+                className="mt-1 block w-full rounded-md border-0 py-2.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-black sm:text-sm sm:leading-6"
+              >
+                <option value="">Select Semester</option>
+                <option value="Semester 1">Semester 1</option>
+                <option value="Semester 2">Semester 2</option>
+                <option value="Semester 3">Semester 3</option>
+                <option value="Semester 4">Semester 4</option>
+                <option value="Semester 5">Semester 5</option>
+                <option value="Semester 6">Semester 6</option>
+                <option value="Semester 7">Semester 7</option>
+                <option value="Semester 8">Semester 8</option>
+              </select>
+            </div>
           </div>
 
           <div className="flex flex-col gap-3">

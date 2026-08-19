@@ -1,11 +1,16 @@
 import { signout } from '@/app/login/actions'
-import { createClient } from '@/utils/supabase/server'
+import { verifyAdminAction } from '@/utils/auth'
+import { redirect } from 'next/navigation'
 import { AdminUploadForm } from '@/components/AdminUploadForm'
 import { DeleteAdminDocumentButton } from '@/components/DeleteAdminDocumentButton'
 
 export default async function AdminDashboard() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const auth = await verifyAdminAction()
+  if (!auth.authorized) {
+    redirect('/student')
+  }
+
+  const { user, supabase } = auth
 
   // Fetch all published documents
   const { data: documents } = await supabase
