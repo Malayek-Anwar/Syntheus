@@ -1,21 +1,36 @@
-'use client'
-
 import { signup } from '@/app/login/actions'
 import Link from 'next/link'
 
-export default function SignupPage() {
+export default async function SignupPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ message?: string }>
+}) {
+  const resolvedParams = await searchParams
+  const message = resolvedParams?.message
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 sm:px-6 lg:px-8">
-      <div className="w-full max-w-md space-y-8 bg-white p-10 shadow-sm border border-gray-200 rounded-xl">
+      <div className="w-full max-w-md space-y-8 bg-white p-8 sm:p-10 shadow-sm border border-gray-200 rounded-2xl">
         <div>
-          <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
+          <h2 className="mt-2 text-center text-3xl font-bold tracking-tight text-gray-900">
             Create a Student Account
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
             Enter your details to access your personalized campus feed
           </p>
         </div>
-        <form className="mt-8 space-y-6" action={signup}>
+
+        {message && (
+          <div className="p-3.5 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl flex items-center gap-2 animate-in fade-in duration-150">
+            <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>{message}</span>
+          </div>
+        )}
+
+        <form className="mt-6 space-y-6" action={signup}>
           <div className="space-y-4">
             <div>
               <label htmlFor="email-address" className="block text-sm font-medium text-gray-700">
@@ -27,7 +42,8 @@ export default function SignupPage() {
                 type="email"
                 autoComplete="email"
                 required
-                className="mt-1 block w-full rounded-md border-0 py-2.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-black sm:text-sm sm:leading-6"
+                className="mt-1 block w-full rounded-lg border-0 py-2.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-black sm:text-sm sm:leading-6"
+                placeholder="name@college.edu"
               />
             </div>
             <div>
@@ -39,7 +55,9 @@ export default function SignupPage() {
                 name="password"
                 type="password"
                 required
-                className="mt-1 block w-full rounded-md border-0 py-2.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-black sm:text-sm sm:leading-6"
+                minLength={6}
+                className="mt-1 block w-full rounded-lg border-0 py-2.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-black sm:text-sm sm:leading-6"
+                placeholder="••••••••"
               />
             </div>
             <div>
@@ -50,13 +68,14 @@ export default function SignupPage() {
                 id="department"
                 name="department"
                 required
-                className="mt-1 block w-full rounded-md border-0 py-2.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-black sm:text-sm sm:leading-6"
+                className="mt-1 block w-full rounded-lg border-0 py-2.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-black sm:text-sm sm:leading-6"
               >
                 <option value="">Select Department</option>
-                <option value="Computer Science">Computer Science</option>
-                <option value="Electrical Engineering">Electrical Engineering</option>
-                <option value="Mechanical Engineering">Mechanical Engineering</option>
-                <option value="Civil Engineering">Civil Engineering</option>
+                <option value="CSE">CSE (Computer Science)</option>
+                <option value="ECE">ECE (Electronics & Communication)</option>
+                <option value="ME">ME (Mechanical Engineering)</option>
+                <option value="CE">CE (Civil Engineering)</option>
+                <option value="IT">IT (Information Technology)</option>
               </select>
             </div>
             <div>
@@ -67,7 +86,7 @@ export default function SignupPage() {
                 id="semester"
                 name="semester"
                 required
-                className="mt-1 block w-full rounded-md border-0 py-2.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-black sm:text-sm sm:leading-6"
+                className="mt-1 block w-full rounded-lg border-0 py-2.5 px-3 text-gray-900 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-black sm:text-sm sm:leading-6"
               >
                 <option value="">Select Semester</option>
                 <option value="Semester 1">Semester 1</option>
@@ -85,7 +104,7 @@ export default function SignupPage() {
           <div className="flex flex-col gap-3">
             <button
               type="submit"
-              className="flex w-full justify-center rounded-md bg-black px-3 py-2.5 text-sm font-semibold text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black transition-colors"
+              className="flex w-full justify-center rounded-lg bg-black px-3 py-2.5 text-sm font-semibold text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black transition-colors cursor-pointer shadow-xs"
             >
               Sign up
             </button>

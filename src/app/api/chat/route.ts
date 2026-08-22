@@ -4,6 +4,7 @@ import { extractPdfText } from '@/utils/pdf'
 import { convertToModelMessages, isTextUIPart, streamText, type UIMessage } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { generateEmbedding } from '@/utils/embeddings'
+import { normalizeAudience } from '@/utils/audience'
 
 const groq = createOpenAI({
   apiKey: process.env.GROQ_API_KEY,
@@ -18,8 +19,8 @@ type CampusMatch = {
 type CampusDocument = {
   title: string
   category: string | null
-  department: string | null
-  semester: string | null
+  target_departments: string[] | null
+  target_semesters: number[] | null
   dates: string | null
   deadline: string | null
   file_url: string
@@ -77,36 +78,35 @@ function parseEmbedding(value: unknown): number[] | null {
 async function extractTextFromStorageOrUrl(
   supabase: Awaited<ReturnType<typeof createClient>>,
   fileUrl: string,
-  bucketName: string
+  bucketName: 'personal_documents' | 'documents'
 ): Promise<string | null> {
-  // 1. Try downloading through Supabase Storage with authenticated client (handles private buckets & RLS)
-  try {
-    const marker = `/${bucketName}/`
-    const index = fileUrl.indexOf(marker)
-    if (index !== -1) {
-      const relativePath = decodeURIComponent(fileUrl.slice(index + marker.length).split('?')[0])
-      const { data: blob, error } = await supabase.storage.from(bucketName).download(relativePath)
-      if (blob && !error) {
-        const arrayBuffer = await blob.arrayBuffer()
+  const match = fileUrl.match(new RegExp(`/${bucketName}/([^?]+)`))
+  const storagePath = match?.[1] ? decodeURIComponent(match[1]) : (!fileUrl.startsWith('http') ? fileUrl : null)
+
+  if (storagePath) {
+    try {
+      const { data, error } = await supabase.storage
+        .from(bucketName)
+        .download(storagePath)
+
+      if (!error && data) {
+        const arrayBuffer = await data.arrayBuffer()
         const text = await extractPdfText(Buffer.from(arrayBuffer))
-        if (text && text.trim()) {
+        if (text?.trim()) {
           return text
         }
-      } else if (error) {
-        console.warn(`Supabase storage download failed for ${bucketName}/${relativePath}:`, error.message)
       }
+    } catch (storageError) {
+      console.warn(`Authenticated storage download failed for ${storagePath}:`, storageError)
     }
-  } catch (storageError) {
-    console.warn(`Storage download attempt threw error for bucket ${bucketName}:`, storageError)
   }
 
-  // 2. Fallback to direct HTTP fetch
   try {
-    const response = await fetch(fileUrl)
-    if (response.ok) {
-      const arrayBuffer = await response.arrayBuffer()
+    const res = await fetch(fileUrl)
+    if (res.ok) {
+      const arrayBuffer = await res.arrayBuffer()
       const text = await extractPdfText(Buffer.from(arrayBuffer))
-      if (text && text.trim()) {
+      if (text?.trim()) {
         return text
       }
     }
@@ -121,14 +121,14 @@ async function getCampusContext(
   supabase: Awaited<ReturnType<typeof createClient>>,
   query: string,
   queryEmbedding: number[],
-  department: string,
-  semester: string
+  studentDept: string,
+  studentSem: number
 ): Promise<string[]> {
   const { data: matches, error } = await supabase.rpc('match_documents_hybrid', {
     query_embedding: queryEmbedding,
     query_text: query,
-    filter_department: department,
-    filter_semester: semester,
+    filter_department: studentDept,
+    filter_semester: studentSem,
     match_count: 5,
     rrf_k: 60
   })
@@ -145,10 +145,20 @@ async function getCampusContext(
     return matchedChunks
   }
 
-  const { data: documents, error: documentsError } = await supabase
+  // Fallback: fetch published notices matching student's department & semester
+  let fallbackQuery = supabase
     .from('documents')
-    .select('title, category, department, semester, dates, deadline, file_url')
+    .select('title, category, target_departments, target_semesters, dates, deadline, file_url')
     .eq('is_published', true)
+
+  if (studentDept) {
+    fallbackQuery = fallbackQuery.contains('target_departments', [studentDept])
+  }
+  if (studentSem) {
+    fallbackQuery = fallbackQuery.contains('target_semesters', [studentSem])
+  }
+
+  const { data: documents, error: documentsError } = await fallbackQuery
     .order('created_at', { ascending: false })
     .limit(5)
 
@@ -164,11 +174,14 @@ async function getCampusContext(
     const text = await extractTextFromStorageOrUrl(supabase, document.file_url, 'documents')
     if (!text) continue
 
+    const depts = document.target_departments && document.target_departments.length > 0 ? document.target_departments.join(', ') : 'All'
+    const sems = document.target_semesters && document.target_semesters.length > 0 ? document.target_semesters.join(', ') : 'All'
+
     contexts.push(
       `Campus notice: ${document.title}
 Category: ${document.category ?? 'Not specified'}
-Department: ${document.department ?? 'Not specified'}
-Semester: ${document.semester ?? 'Not specified'}
+Target Departments: ${depts}
+Target Semesters: ${sems}
 Dates: ${document.dates ?? 'Not specified'}
 Deadline: ${document.deadline ?? 'Not specified'}
 Content: ${text.slice(0, 6000)}`
@@ -249,14 +262,18 @@ export async function POST(req: Request) {
       return new Response('Unauthorized', { status: 401 })
     }
 
-    const department = user.user_metadata?.department || ''
-    const semester = user.user_metadata?.semester || ''
+    const rawDept = user.user_metadata?.department || 'CSE'
+    const rawSem = user.user_metadata?.semester || 'Semester 1'
+
+    const { target_departments, target_semesters } = normalizeAudience(rawDept, rawSem)
+    const studentDept = target_departments[0] || 'CSE'
+    const studentSem = target_semesters[0] || 1
 
     // 2. Generate embedding for the question using Local Xenova model
     const queryEmbedding = await generateEmbedding(lastMessage)
 
     const [campusContext, personalContext] = await Promise.all([
-      getCampusContext(supabase, lastMessage, queryEmbedding, department, semester),
+      getCampusContext(supabase, lastMessage, queryEmbedding, studentDept, studentSem),
       getPersonalContext(supabase, user.id, lastMessage, queryEmbedding)
     ])
 

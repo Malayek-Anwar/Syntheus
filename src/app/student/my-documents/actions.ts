@@ -3,6 +3,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { getErrorMessage } from '@/utils/errors'
 import { extractPdfText } from '@/utils/pdf'
+import { extractPersonalStoragePath } from '@/utils/storage'
 import { v4 as uuidv4 } from 'uuid'
 
 export async function uploadPersonalDocument(formData: FormData) {
@@ -32,13 +33,9 @@ export async function uploadPersonalDocument(formData: FormData) {
       })
 
     if (uploadError) {
-      // If bucket doesn't exist or RLS blocks it, this fails
-      console.error(uploadError)
-      return { success: false, error: `Storage upload failed. Did you create the personal_documents bucket? ${uploadError.message}` }
+      console.error('Storage upload error:', uploadError)
+      return { success: false, error: `Storage upload failed: ${uploadError.message}` }
     }
-
-    const { data: publicUrlData } = supabase.storage.from('personal_documents').getPublicUrl(fileName)
-    const fileUrl = publicUrlData.publicUrl
 
     // 2. Parse PDF Text
     const arrayBuffer = await file.arrayBuffer()
@@ -48,19 +45,18 @@ export async function uploadPersonalDocument(formData: FormData) {
     // 3. Generate Embedding using Local Xenova model
     const { generateEmbedding } = await import('@/utils/embeddings')
     
-    // We take the first 8000 characters
     const truncatedText = rawText.slice(0, 8000)
     const textToEmbed = `Title: ${title}\n\nContent: ${truncatedText}`
 
     const embedding = await generateEmbedding(textToEmbed)
 
-    // 4. Save to Database
+    // 4. Save to Database with private storage path
     const { error: dbError } = await supabase
       .from('personal_documents')
       .insert({
         user_id: user.id,
         title,
-        file_url: fileUrl,
+        file_url: fileName,
         embedding
       })
 
@@ -81,15 +77,15 @@ export async function deletePersonalDocument(id: string, fileUrl: string) {
     if (!user) throw new Error('Not authenticated')
 
     // 1. Delete from Storage
-    // Extract filename from URL (assumes format: .../personal_documents/userId/uuid.ext)
-    const urlParts = fileUrl.split('/')
-    const fileName = urlParts.pop()
-    const folderName = urlParts.pop()
-    
-    if (folderName && fileName) {
-      await supabase.storage
+    const storagePath = extractPersonalStoragePath(fileUrl)
+    if (storagePath) {
+      const { error: storageError } = await supabase.storage
         .from('personal_documents')
-        .remove([`${folderName}/${fileName}`])
+        .remove([storagePath])
+
+      if (storageError) {
+        console.warn('Storage deletion warning:', storageError)
+      }
     }
 
     // 2. Delete from Database

@@ -1,78 +1,113 @@
 import { createClient } from '@/utils/supabase/server'
-import { HomeSearchBar } from '@/components/HomeSearchBar'
+import { normalizeAudience, isAudienceVisibleToStudent } from '@/utils/audience'
+import { UrgentNoticeCard } from '@/components/UrgentNoticeCard'
+import { NoticeFilterFeed } from '@/components/NoticeFilterFeed'
+import Link from 'next/link'
 
 export default async function StudentHomePage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  const department = user?.user_metadata?.department || ''
-  const semester = user?.user_metadata?.semester || ''
+  const rawDept = user?.user_metadata?.department || 'CSE'
+  const rawSem = user?.user_metadata?.semester || 'Semester 1'
 
-  // Fetch documents that are published and relevant to the student
-  // We use a broad OR condition to catch specific department mentions OR general 'All' documents
-  const { data: documents } = await supabase
+  const { target_departments: studentDepts, target_semesters: studentSems } = normalizeAudience(rawDept, rawSem)
+  const studentDept = studentDepts[0] || 'CSE'
+  const studentSem = studentSems[0] || 1
+
+  // Fetch all published documents and filter strictly with canonical audience visibility rules
+  const { data: allDocuments } = await supabase
     .from('documents')
     .select('*')
     .eq('is_published', true)
-    .or(`department.ilike.%${department}%,department.ilike.%all%,audience.ilike.%all%`)
     .order('created_at', { ascending: false })
-    .limit(10)
+
+  const documents = (allDocuments ?? []).filter((doc) =>
+    isAudienceVisibleToStudent(doc, studentDept, studentSem)
+  )
+
+  // Split documents into urgentDocs (strictly upcoming deadline within next 14 days) and feedDocs (remaining)
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const fourteenDaysFromNow = new Date(startOfToday.getTime() + 14 * 24 * 60 * 60 * 1000 + (24 * 60 * 60 * 1000 - 1))
+
+  const urgentDocs: typeof documents = []
+  const feedDocs: typeof documents = []
+
+  for (const doc of documents ?? []) {
+    let isUrgent = false
+
+    // Strictly deadline check: document must have an upcoming deadline within the next 14 days
+    if (doc.deadline) {
+      const deadlineDate = new Date(doc.deadline)
+      if (!isNaN(deadlineDate.getTime())) {
+        const isUpcomingWithin14Days = deadlineDate >= startOfToday && deadlineDate <= fourteenDaysFromNow
+        if (isUpcomingWithin14Days) {
+          isUrgent = true
+        }
+      }
+    }
+
+    if (isUrgent) {
+      urgentDocs.push(doc)
+    } else {
+      feedDocs.push(doc)
+    }
+  }
 
   return (
-    <div className="p-8 max-w-5xl mx-auto space-y-10">
-      {/* RAG Search Bar */}
-      <HomeSearchBar />
-
-      {/* Personalized Feed */}
-      <div>
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-gray-900">Your Personalized Feed</h2>
-          <span className="text-sm font-medium text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-            {department} • {semester}
+    <div className="p-4 sm:p-6 md:p-8 max-w-5xl mx-auto space-y-8 sm:space-y-10 w-full">
+      {/* Clean Dashboard Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-gray-200">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 tracking-tight">Student Dashboard</h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Live campus updates, urgent deadlines, and targeted academic circulars.</p>
+        </div>
+        <div className="flex-shrink-0">
+          <span className="inline-flex items-center text-xs font-semibold text-blue-700 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-200">
+            {studentDept} • Semester {studentSem}
           </span>
         </div>
+      </div>
 
-        {documents && documents.length > 0 ? (
+      {/* 1. Urgent Notices Section (Rendered at top with UrgentNoticeCard) */}
+      {urgentDocs && urgentDocs.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold text-gray-900">Urgent Notices & Deadlines</h2>
+            <span className="text-xs font-semibold px-2.5 py-1 bg-red-100 text-red-700 rounded-full border border-red-200">
+              {urgentDocs.length} Action{urgentDocs.length > 1 ? 's' : ''} Required
+            </span>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-2">
-            {documents.map((doc) => (
-              <a 
+            {urgentDocs.map((doc) => (
+              <UrgentNoticeCard
                 key={doc.id}
-                href={doc.file_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block p-5 bg-white border border-gray-200 rounded-xl hover:border-gray-300 hover:shadow-sm transition-all group"
-              >
-                <div className="flex justify-between items-start mb-2">
-                  <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
-                    {doc.category}
-                  </span>
-                  {doc.priority?.toLowerCase() === 'high' && (
-                    <span className="inline-flex items-center rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700 ring-1 ring-inset ring-red-600/10">
-                      High Priority
-                    </span>
-                  )}
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900 group-hover:text-blue-600 transition-colors line-clamp-2">
-                  {doc.title}
-                </h3>
-                <div className="mt-4 flex items-center justify-between text-sm text-gray-500">
-                  <span>{doc.department}</span>
-                  {doc.deadline && (
-                    <span className="flex items-center text-orange-600 font-medium">
-                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-                      Due {new Date(doc.deadline).toLocaleDateString()}
-                    </span>
-                  )}
-                </div>
-              </a>
+                id={doc.id}
+                title={doc.title}
+                category={doc.category}
+                deadline={doc.deadline}
+                target_departments={doc.target_departments}
+                target_semesters={doc.target_semesters}
+                audience={doc.audience}
+                file_url={doc.file_url}
+                priority={doc.priority}
+              />
             ))}
           </div>
-        ) : (
-          <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
-            <p className="text-gray-500">No recent notices found for your department.</p>
-          </div>
-        )}
-      </div>
+        </section>
+      )}
+
+      {/* 2. Personalized Feed with Interactive Filter Tabs */}
+      <section className="space-y-4">
+        <NoticeFilterFeed
+          documents={feedDocs}
+          title="Your Personalized Feed"
+          defaultTab="all"
+          showSearch={true}
+        />
+      </section>
     </div>
   )
 }

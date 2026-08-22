@@ -1,162 +1,566 @@
 'use client'
 
-import { useState } from 'react'
-import { parsePDF, publishDocument, type ExtractedData } from '@/app/admin/actions'
+import { useState, useRef } from 'react'
+import { parsePDF, publishDocument, type ExtractedData, type DocType, type TimelineMilestone } from '@/app/admin/actions'
 import { useRouter } from 'next/navigation'
+
+const DOC_TYPE_OPTIONS: { type: DocType; label: string; icon: string }[] = [
+  { type: 'fee_notice', label: 'Fee & Dues', icon: '💳' },
+  { type: 'academic_calendar', label: 'Academic Calendar', icon: '📅' },
+  { type: 'holiday_notice', label: 'Holiday Notice', icon: '🎉' },
+  { type: 'academic_notes', label: 'Class Notes / Syllabus', icon: '📚' },
+  { type: 'exam_circular', label: 'Exam Circular', icon: '📝' },
+  { type: 'general_notice', label: 'General Notice', icon: '📢' },
+]
+
+const ALL_DEPTS = ['CSE', 'ECE', 'ME', 'CE', 'IT']
+const ALL_SEMS = [1, 2, 3, 4, 5, 6, 7, 8]
 
 export function AdminUploadForm() {
   const [file, setFile] = useState<File | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [loadingStep, setLoadingStep] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null)
+  const [selectedDocType, setSelectedDocType] = useState<DocType>('general_notice')
+  const [selectedDepts, setSelectedDepts] = useState<string[]>(['All'])
+  const [selectedSems, setSelectedSems] = useState<number[]>([])
+  const [timelineItems, setTimelineItems] = useState<TimelineMilestone[]>([])
+  const [isDragOver, setIsDragOver] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const router = useRouter()
 
-  const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleFileChange = (incomingFile: File | null) => {
+    if (!incomingFile) return
+    if (incomingFile.type !== 'application/pdf') {
+      setError('Please select a valid PDF document.')
+      return
+    }
+    setError(null)
+    setFile(incomingFile)
+  }
+
+  const handleUpload = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
     if (!file) return
 
     setIsLoading(true)
     setError(null)
+    setSuccessMessage(null)
+    setLoadingStep('Uploading & running AI extraction...')
+
     const formData = new FormData()
     formData.append('file', file)
 
     const result = await parsePDF(formData)
     
     if (!result.success || !result.data) {
-      setError(result.error || 'Failed to parse PDF')
+      setError(result.error || 'Failed to parse PDF document')
       setIsLoading(false)
+      setLoadingStep('')
       return
     }
 
     setExtractedData(result.data)
+    setSelectedDocType(result.data.doc_type)
+    setSelectedDepts(result.data.target_departments.length > 0 ? result.data.target_departments : ['All'])
+    setSelectedSems(result.data.target_semesters)
+    setTimelineItems(result.data.timeline || [])
     setIsLoading(false)
+    setLoadingStep('')
   }
 
-  const handlePublish = async (e: React.FormEvent<HTMLFormElement>) => {
+  const toggleDept = (dept: string) => {
+    if (dept === 'All') {
+      setSelectedDepts(['All'])
+      return
+    }
+    const filtered = selectedDepts.filter(d => d !== 'All')
+    if (filtered.includes(dept)) {
+      const next = filtered.filter(d => d !== dept)
+      setSelectedDepts(next.length === 0 ? ['All'] : next)
+    } else {
+      setSelectedDepts([...filtered, dept])
+    }
+  }
+
+  const toggleSem = (sem: number) => {
+    if (selectedSems.includes(sem)) {
+      setSelectedSems(selectedSems.filter(s => s !== sem))
+    } else {
+      setSelectedSems([...selectedSems, sem].sort((a, b) => a - b))
+    }
+  }
+
+  const handlePublish = async (e: React.FormEvent<HTMLFormElement>, isDraft: boolean = false) => {
     e.preventDefault()
     if (!extractedData) return
 
     setIsLoading(true)
     setError(null)
     
-    const formData = new FormData(e.currentTarget)
-    
+    const formElement = e.currentTarget.tagName === 'FORM' ? e.currentTarget as HTMLFormElement : (e.target as HTMLElement).closest('form') as HTMLFormElement
+    const formData = new FormData(formElement)
+
+    const keyPointsRaw = formData.get('key_points') as string
+    const key_points = keyPointsRaw
+      ? keyPointsRaw.split('\n').map(line => line.replace(/^[•\-\*]\s*/, '').trim()).filter(Boolean)
+      : extractedData.key_points
+
+    const actionItemsRaw = formData.get('action_items') as string
+    const action_items = actionItemsRaw
+      ? actionItemsRaw.split('\n').map(line => line.replace(/^(\d+\.|\-|\*|\[\s*\])\s*/, '').trim()).filter(Boolean)
+      : extractedData.action_items
+
     const finalData: ExtractedData = {
       ...extractedData,
-      title: formData.get('title') as string,
-      category: formData.get('category') as string,
-      audience: formData.get('audience') as string,
-      department: formData.get('department') as string,
-      semester: formData.get('semester') as string,
-      dates: formData.get('dates') as string,
-      deadline: formData.get('deadline') as string,
-      priority: formData.get('priority') as string,
+      title: (formData.get('title') as string) || extractedData.title,
+      doc_type: selectedDocType,
+      category: (formData.get('category') as string) || extractedData.category,
+      audience: selectedDepts.join(', '),
+      target_departments: selectedDepts,
+      target_semesters: selectedSems,
+      summary: (formData.get('summary') as string) || extractedData.summary,
+      key_points,
+      action_items,
+      timeline: timelineItems,
+      dates: (formData.get('dates') as string) || extractedData.dates,
+      deadline: (formData.get('deadline') as string) || extractedData.deadline || null,
+      priority: (formData.get('priority') as string) || extractedData.priority,
+      subject_code: (formData.get('subject_code') as string) || null,
     }
 
-    const result = await publishDocument(finalData)
+    const result = await publishDocument(finalData, isDraft)
     
     if (!result.success) {
-      setError(result.error || 'Failed to publish')
+      setError(result.error || 'Failed to save document')
       setIsLoading(false)
       return
     }
 
-    alert('Document published successfully!')
+    setSuccessMessage(
+      isDraft 
+        ? 'Document saved as draft (hidden from students)!' 
+        : 'Document published, summarized, and vectorized successfully!'
+    )
     setExtractedData(null)
     setFile(null)
     setIsLoading(false)
     router.refresh()
+
+    setTimeout(() => {
+      setSuccessMessage(null)
+    }, 5000)
   }
 
+  // =========================================================================
+  // VIEW 1: MINIMAL REVIEW & PUBLISH CARD
+  // =========================================================================
   if (extractedData) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
-        <h2 className="text-xl font-bold text-gray-900 mb-6">Review & Publish Document</h2>
-        <form onSubmit={handlePublish} className="space-y-6">
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+      <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 sm:p-6 w-full space-y-5 animate-in fade-in duration-200">
+        {/* Minimal Header */}
+        <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <span className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center font-bold text-xs">
+              AI
+            </span>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Title</label>
-              <input type="text" name="title" defaultValue={extractedData.title} required className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border" />
+              <h3 className="text-sm font-bold text-gray-900">Review Extracted Information</h3>
+              <p className="text-[11px] text-gray-500">Verify extracted details before publishing to students.</p>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Category</label>
-              <input type="text" name="category" defaultValue={extractedData.category} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border" />
+          </div>
+
+          {extractedData.fileUrl && (
+            <a
+              href={extractedData.fileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center gap-1"
+            >
+              View PDF ↗
+            </a>
+          )}
+        </div>
+
+        {/* Minimal Review Form */}
+        <form onSubmit={handlePublish} className="space-y-4">
+          {/* Row 1: Title, Category & Archetype */}
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+            <div className="sm:col-span-6">
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Notice Title</label>
+              <input
+                type="text"
+                name="title"
+                defaultValue={extractedData.title}
+                required
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs sm:text-sm text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none"
+              />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Audience</label>
-              <input type="text" name="audience" defaultValue={extractedData.audience} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border" />
+
+            <div className="sm:col-span-3">
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Circular Archetype</label>
+              <select
+                value={selectedDocType}
+                onChange={(e) => setSelectedDocType(e.target.value as DocType)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs sm:text-sm text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none bg-white"
+              >
+                {DOC_TYPE_OPTIONS.map((opt) => (
+                  <option key={opt.type} value={opt.type}>
+                    {opt.icon} {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Department</label>
-              <input type="text" name="department" defaultValue={extractedData.department} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border" />
+
+            <div className="sm:col-span-3">
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Category Label</label>
+              <input
+                type="text"
+                name="category"
+                defaultValue={extractedData.category}
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs sm:text-sm text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none"
+              />
             </div>
+          </div>
+
+          {/* Row 2: AI Executive Summary */}
+          <div>
+            <label className="block text-xs font-semibold text-blue-950 mb-1">
+              ✨ AI Executive Summary
+            </label>
+            <textarea
+              name="summary"
+              rows={2}
+              defaultValue={extractedData.summary}
+              className="w-full rounded-lg border border-blue-200 bg-blue-50/20 px-3 py-2 text-xs sm:text-sm text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none leading-relaxed"
+              placeholder="Concise summary for student overview..."
+            />
+          </div>
+
+          {/* Row 3: Key Points & Action Items side-by-side */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Semester</label>
-              <input type="text" name="semester" defaultValue={extractedData.semester} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border" />
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                📌 Key Rules & Stipulations (One per line)
+              </label>
+              <textarea
+                name="key_points"
+                rows={3}
+                defaultValue={extractedData.key_points.map(p => `• ${p}`).join('\n')}
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none leading-relaxed"
+              />
             </div>
+
             <div>
-              <label className="block text-sm font-medium text-gray-700">Dates</label>
-              <input type="text" name="dates" defaultValue={extractedData.dates} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border" />
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                ✅ Action Checklist (One per line)
+              </label>
+              <textarea
+                name="action_items"
+                rows={3}
+                defaultValue={extractedData.action_items.map((a, i) => `${i + 1}. ${a}`).join('\n')}
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none leading-relaxed"
+              />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Deadline (ISO Format)</label>
-              <input type="text" name="deadline" defaultValue={extractedData.deadline || ''} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border" />
+          </div>
+
+          {/* Row 4: Timeline Milestones (Compact) */}
+          <div className="rounded-lg border border-gray-200 bg-gray-50/60 p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-gray-800">
+                ⏳ Multi-Stage Timeline / Milestones
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setTimelineItems([
+                    ...timelineItems,
+                    { label: 'Stage', date: new Date().toISOString().split('T')[0], fee_penalty: null, description: null }
+                  ])
+                }}
+                className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 cursor-pointer"
+              >
+                + Add Stage
+              </button>
             </div>
+
+            {timelineItems.length > 0 ? (
+              <div className="space-y-1.5">
+                {timelineItems.map((m, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-xs">
+                    <input
+                      type="text"
+                      value={m.label}
+                      onChange={(e) => {
+                        const next = [...timelineItems]
+                        next[idx].label = e.target.value
+                        setTimelineItems(next)
+                      }}
+                      placeholder="Stage (e.g. Without Fine)"
+                      className="flex-1 px-2.5 py-1 rounded border border-gray-300 bg-white text-xs font-medium"
+                    />
+                    <input
+                      type="text"
+                      value={m.fee_penalty || ''}
+                      onChange={(e) => {
+                        const next = [...timelineItems]
+                        next[idx].fee_penalty = e.target.value || null
+                        setTimelineItems(next)
+                      }}
+                      placeholder="Penalty (optional)"
+                      className="w-28 px-2.5 py-1 rounded border border-gray-300 bg-white text-xs text-orange-700"
+                    />
+                    <input
+                      type="date"
+                      value={m.date}
+                      onChange={(e) => {
+                        const next = [...timelineItems]
+                        next[idx].date = e.target.value
+                        setTimelineItems(next)
+                      }}
+                      className="px-2 py-1 rounded border border-gray-300 bg-white text-xs font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setTimelineItems(timelineItems.filter((_, i) => i !== idx))}
+                      className="text-red-500 hover:text-red-700 px-1 text-xs cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-gray-400 italic">No multi-stage dates specified.</p>
+            )}
+          </div>
+
+          {/* Row 5: Audience (Departments & Semesters) */}
+          <div className="rounded-lg border border-gray-200 bg-gray-50/60 p-3 space-y-2.5">
+            <span className="text-xs font-semibold text-gray-800 block">
+              🎯 Target Audience Filtering
+            </span>
+            
+            {/* Departments */}
+            <div className="space-y-1">
+              <span className="text-[11px] font-medium text-gray-600">Departments:</span>
+              <div className="flex flex-wrap items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => toggleDept('All')}
+                  className={`px-2.5 py-0.5 text-xs font-semibold rounded-md border transition-colors cursor-pointer ${
+                    selectedDepts.includes('All')
+                      ? 'bg-black text-white border-black'
+                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  All
+                </button>
+                {ALL_DEPTS.map((dept) => (
+                  <button
+                    key={dept}
+                    type="button"
+                    onClick={() => toggleDept(dept)}
+                    className={`px-2.5 py-0.5 text-xs font-semibold rounded-md border transition-colors cursor-pointer ${
+                      selectedDepts.includes(dept) && !selectedDepts.includes('All')
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    {dept}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Semesters */}
+            <div className="space-y-1">
+              <span className="text-[11px] font-medium text-gray-600">Semesters (Empty = All Semesters):</span>
+              <div className="flex flex-wrap items-center gap-1">
+                {ALL_SEMS.map((sem) => (
+                  <button
+                    key={sem}
+                    type="button"
+                    onClick={() => toggleSem(sem)}
+                    className={`w-8 h-7 text-xs font-semibold rounded-md border transition-colors cursor-pointer flex items-center justify-center ${
+                      selectedSems.includes(sem)
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    S{sem}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Row 6: Primary Deadline & Priority */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Priority</label>
-              <select name="priority" defaultValue={extractedData.priority} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border">
-                <option value="High">High</option>
-                <option value="Medium">Medium</option>
-                <option value="Low">Low</option>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Primary Deadline</label>
+              <input
+                type="date"
+                name="deadline"
+                defaultValue={extractedData.deadline || ''}
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Priority</label>
+              <select
+                name="priority"
+                defaultValue={extractedData.priority}
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none bg-white"
+              >
+                <option value="High">🔴 High Priority</option>
+                <option value="Medium">🟡 Medium</option>
+                <option value="Low">⚪ Low</option>
               </select>
             </div>
           </div>
-          
-          {error && <p className="text-red-600 text-sm">{error}</p>}
-          
-          <div className="flex gap-4 pt-4 border-t border-gray-200">
+
+          {error && <p className="text-red-600 text-xs font-medium">{error}</p>}
+
+          {/* Action Buttons */}
+          <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
             <button
               type="button"
-              onClick={() => setExtractedData(null)}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2"
+              onClick={() => {
+                setExtractedData(null)
+                setFile(null)
+              }}
+              className="text-xs font-semibold text-gray-600 hover:text-gray-800 px-3 py-1.5 cursor-pointer"
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="px-4 py-2 text-sm font-medium text-white bg-black border border-transparent rounded-md shadow-sm hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 disabled:opacity-50"
-            >
-              {isLoading ? 'Publishing...' : 'Publish Document'}
-            </button>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={(e) => {
+                  const form = (e.currentTarget.closest('form')) as HTMLFormElement
+                  if (form) {
+                    const fakeEvent = {
+                      preventDefault: () => {},
+                      currentTarget: form,
+                      target: form,
+                    } as unknown as React.FormEvent<HTMLFormElement>
+                    handlePublish(fakeEvent, true)
+                  }
+                }}
+                className="px-3.5 py-1.5 text-xs font-semibold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-lg shadow-2xs cursor-pointer transition-colors disabled:opacity-50"
+              >
+                Save as Draft
+              </button>
+
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs cursor-pointer transition-all disabled:opacity-50"
+              >
+                {isLoading ? 'Publishing...' : 'Publish to Students →'}
+              </button>
+            </div>
           </div>
         </form>
       </div>
     )
   }
 
+  // =========================================================================
+  // VIEW 2: MINIMAL DRAG & DROP UPLOAD CARD
+  // =========================================================================
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
-      <h2 className="text-xl font-bold text-gray-900 mb-6">Upload New Document</h2>
-      <form onSubmit={handleUpload} className="space-y-6">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">PDF Document</label>
-          <input 
-            type="file" 
-            accept="application/pdf"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-            className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-gray-50 file:text-gray-700 hover:file:bg-gray-100 cursor-pointer border border-gray-200 rounded-md p-2"
-          />
+    <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 sm:p-6 w-full space-y-4">
+      {successMessage && (
+        <div className="p-3 bg-green-50 border border-green-200 text-green-800 text-xs font-semibold rounded-lg flex items-center gap-2 animate-in fade-in duration-200">
+          <span>✓</span>
+          <span>{successMessage}</span>
         </div>
-        {error && <p className="text-red-600 text-sm">{error}</p>}
-        <button
-          type="submit"
-          disabled={!file || isLoading}
-          className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-black hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black disabled:opacity-50"
-        >
-          {isLoading ? 'Uploading & Extracting Data...' : 'Upload & Extract Data'}
-        </button>
-      </form>
+      )}
+
+      {isLoading ? (
+        <div className="py-8 text-center space-y-3 animate-in fade-in duration-200">
+          <span className="inline-block w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs text-blue-600 font-medium">{loadingStep}</p>
+        </div>
+      ) : (
+        <form onSubmit={handleUpload} className="space-y-4">
+          <div
+            onDragOver={(e) => {
+              e.preventDefault()
+              setIsDragOver(true)
+            }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault()
+              setIsDragOver(false)
+              if (e.dataTransfer.files?.[0]) {
+                handleFileChange(e.dataTransfer.files[0])
+              }
+            }}
+            onClick={() => fileInputRef.current?.click()}
+            className={`border border-dashed rounded-xl p-6 sm:p-8 text-center cursor-pointer transition-all ${
+              isDragOver
+                ? 'border-blue-500 bg-blue-50/50'
+                : file
+                ? 'border-blue-400 bg-blue-50/20'
+                : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50/50'
+            }`}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
+              className="hidden"
+            />
+
+            <div className="flex flex-col items-center justify-center space-y-2">
+              <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center text-lg">
+                📄
+              </div>
+              <div>
+                <p className="text-xs sm:text-sm font-semibold text-gray-900">
+                  {file ? file.name : 'Select or drag & drop campus PDF circular'}
+                </p>
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  {file
+                    ? `${Math.round(file.size / 1024)} KB • Ready for extraction`
+                    : 'PDF documents up to 25MB (Fee circulars, calendars, exam forms, notes)'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {error && <p className="text-red-600 text-xs font-medium text-center">{error}</p>}
+
+          <div className="flex items-center justify-between">
+            {file ? (
+              <button
+                type="button"
+                onClick={() => setFile(null)}
+                className="text-xs text-gray-500 hover:text-red-600 cursor-pointer"
+              >
+                Clear file
+              </button>
+            ) : <div />}
+
+            <button
+              type="submit"
+              disabled={!file || isLoading}
+              className="px-5 py-2 rounded-lg font-semibold text-xs text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 cursor-pointer transition-all shadow-xs flex items-center gap-1.5"
+            >
+              <span>⚡ Analyze & Extract</span>
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   )
 }

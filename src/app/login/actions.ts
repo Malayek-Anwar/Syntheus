@@ -53,7 +53,7 @@ export async function signup(formData: FormData) {
   })
 
   if (error) {
-    redirect(`/login?message=${encodeURIComponent(error.message)}`)
+    redirect(`/signup?message=${encodeURIComponent(error.message)}`)
   }
 
   redirect('/student')
