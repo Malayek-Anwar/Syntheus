@@ -8,11 +8,11 @@ import { useRouter } from 'next/navigation'
 
 const DOC_TYPE_META: Record<string, { label: string; icon: string; bg: string; text: string; border: string }> = {
   fee_notice: { label: 'Fee & Dues', icon: '💳', bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
-  academic_calendar: { label: 'Academic Calendar', icon: '📅', bg: 'bg-indigo-50', text: 'text-indigo-700', border: 'border-indigo-200' },
+  academic_calendar: { label: 'Academic Calendar', icon: '📅', bg: 'bg-[#eef4f3]', text: 'text-[#35635d]', border: 'border-[#d5e5e1]' },
   holiday_notice: { label: 'Holiday Notice', icon: '🎉', bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
   academic_notes: { label: 'Class Notes', icon: '📚', bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
   exam_circular: { label: 'Exam Circular', icon: '📝', bg: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200' },
-  general_notice: { label: 'General Notice', icon: '📢', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
+  general_notice: { label: 'General Notice', icon: '📢', bg: 'bg-[#eef4f3]', text: 'text-[#35635d]', border: 'border-[#d5e5e1]' },
 }
 
 type LifecycleTab = 'live' | 'drafts' | 'archived' | 'all'
@@ -81,10 +81,15 @@ export function AdminDocumentDirectory({ documents = [] }: AdminDocumentDirector
 
   const handleQuickToggle = async (id: string, action: 'publish' | 'draft' | 'archive' | 'restore') => {
     setIsTogglingId(id)
-    const res = await toggleDocumentLifecycle(id, action)
-    setIsTogglingId(null)
-    if (res.success) {
-      router.refresh()
+    try {
+      const res = await toggleDocumentLifecycle(id, action)
+      if (res.success) {
+        router.refresh()
+      }
+    } catch (err) {
+      console.error('Failed to toggle document lifecycle:', err)
+    } finally {
+      setIsTogglingId(null)
     }
   }
 
@@ -104,7 +109,7 @@ export function AdminDocumentDirectory({ documents = [] }: AdminDocumentDirector
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search circulars..."
-            className="w-full text-xs sm:text-sm pl-9 pr-8 py-2 rounded-xl bg-white border border-gray-300 shadow-2xs focus:border-blue-600 focus:ring-1 focus:ring-blue-600 transition-all placeholder:text-gray-400"
+            className="w-full text-xs sm:text-sm pl-9 pr-8 py-2 rounded-xl bg-white border border-gray-300 shadow-2xs focus:border-[#176b61] focus:ring-1 focus:ring-[#176b61] transition-all placeholder:text-gray-400"
           />
           <svg className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -122,59 +127,67 @@ export function AdminDocumentDirectory({ documents = [] }: AdminDocumentDirector
       </div>
 
       {/* Lifecycle Status Filter Tabs */}
-      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-gray-200">
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-[#dfe7e3]">
         <button
           onClick={() => setActiveTab('live')}
-          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg whitespace-nowrap transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-all cursor-pointer ${
             activeTab === 'live'
-              ? 'bg-emerald-600 text-white shadow-2xs'
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 bg-white border border-gray-200/80'
+              ? 'bg-[#176b61] text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-[#edf6f3] bg-white border border-[#dfe7e3]'
           }`}
         >
-          <span>🟢</span>
-          <span>Live ({counts.live})</span>
+          <span>Live</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${activeTab === 'live' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            {counts.live}
+          </span>
         </button>
 
         <button
           onClick={() => setActiveTab('drafts')}
-          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg whitespace-nowrap transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-all cursor-pointer ${
             activeTab === 'drafts'
-              ? 'bg-amber-600 text-white shadow-2xs'
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 bg-white border border-gray-200/80'
+              ? 'bg-amber-700 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-amber-50/50 bg-white border border-[#dfe7e3]'
           }`}
         >
-          <span>🟡</span>
-          <span>Drafts ({counts.drafts})</span>
+          <span>Drafts</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${activeTab === 'drafts' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            {counts.drafts}
+          </span>
         </button>
 
         <button
           onClick={() => setActiveTab('archived')}
-          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg whitespace-nowrap transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-all cursor-pointer ${
             activeTab === 'archived'
-              ? 'bg-gray-800 text-white shadow-2xs'
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 bg-white border border-gray-200/80'
+              ? 'bg-slate-800 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 bg-white border border-[#dfe7e3]'
           }`}
         >
-          <span>📦</span>
-          <span>Archived ({counts.archived})</span>
+          <span>Archived</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${activeTab === 'archived' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            {counts.archived}
+          </span>
         </button>
 
         <button
           onClick={() => setActiveTab('all')}
-          className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg whitespace-nowrap transition-all cursor-pointer ${
+          className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-full whitespace-nowrap transition-all cursor-pointer ${
             activeTab === 'all'
-              ? 'bg-blue-600 text-white shadow-2xs'
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 bg-white border border-gray-200/80'
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 bg-white border border-[#dfe7e3]'
           }`}
         >
-          <span>📄</span>
-          <span>All Documents ({counts.all})</span>
+          <span>All Documents</span>
+          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${activeTab === 'all' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}>
+            {counts.all}
+          </span>
         </button>
       </div>
 
       {/* Document List */}
       {filteredDocuments.length > 0 ? (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden divide-y divide-gray-200">
+        <div className="bg-white rounded-xl shadow-xs border border-[#dfe7e3] overflow-hidden divide-y divide-[#dfe7e3]">
           {filteredDocuments.map((doc) => {
             const docTypeKey = doc.doc_type || 'general_notice'
             const typeMeta = DOC_TYPE_META[docTypeKey] || DOC_TYPE_META.general_notice
@@ -189,69 +202,57 @@ export function AdminDocumentDirectory({ documents = [] }: AdminDocumentDirector
             return (
               <div
                 key={doc.id}
-                className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-gray-50/80 transition-colors"
+                className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#fbfcfb] transition-colors"
               >
-                <div className="flex items-start gap-3.5 min-w-0 flex-1">
-                  {/* Archetype Icon pill */}
-                  <div className="flex-shrink-0 mt-0.5">
-                    <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-bold ${typeMeta.bg} ${typeMeta.text} border ${typeMeta.border}`}>
-                      <span>{typeMeta.icon}</span>
-                      <span className="hidden sm:inline">{typeMeta.label}</span>
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-semibold text-[#176b61]">
+                      {typeMeta.label}
                     </span>
-                  </div>
-
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-sm sm:text-base font-bold text-gray-900 leading-snug">{doc.title}</h3>
-                      
-                      {/* Lifecycle Status Badge */}
-                      {isLive && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full border border-emerald-200">
-                          LIVE
-                        </span>
-                      )}
-                      {isDraft && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full border border-amber-200">
-                          DRAFT
-                        </span>
-                      )}
-                      {isArchived && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 bg-gray-100 text-gray-700 rounded-full border border-gray-300">
-                          ARCHIVED
-                        </span>
-                      )}
-
-                      {doc.priority?.toLowerCase() === 'high' && (
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 bg-red-100 text-red-700 rounded border border-red-200">
-                          HIGH
-                        </span>
-                      )}
-                    </div>
-
-                    {doc.summary && (
-                      <p className="text-xs text-gray-600 line-clamp-1 italic">{doc.summary}</p>
+                    
+                    {/* Lifecycle Status Badge */}
+                    {isLive && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-50 text-emerald-800 rounded-full border border-emerald-200">
+                        LIVE
+                      </span>
+                    )}
+                    {isDraft && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-50 text-amber-800 rounded-full border border-amber-200">
+                        DRAFT
+                      </span>
+                    )}
+                    {isArchived && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-100 text-slate-700 rounded-full border border-slate-300">
+                        ARCHIVED
+                      </span>
                     )}
 
-                    <div className="flex flex-wrap items-center gap-x-2 text-xs text-gray-500">
-                      <span className="font-medium text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded text-[11px]">
-                        {doc.category || 'General'}
+                    {doc.priority?.toLowerCase() === 'high' && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-red-50 text-red-700 rounded-full border border-red-200">
+                        URGENT
                       </span>
-                      <span>•</span>
-                      <span>{depts}</span>
-                      {doc.target_semesters && doc.target_semesters.length > 0 && (
-                        <span>• Sem {doc.target_semesters.join(', ')}</span>
-                      )}
-                      <span>•</span>
-                      <span>{new Date(doc.created_at).toLocaleDateString()}</span>
-                      {doc.deadline && (
-                        <>
-                          <span>•</span>
-                          <span className="text-orange-700 font-medium bg-orange-50 px-1.5 py-0.5 rounded text-[11px] border border-orange-200/60">
-                            Due {new Date(doc.deadline).toLocaleDateString()}
-                          </span>
-                        </>
-                      )}
-                    </div>
+                    )}
+
+                    {doc.deadline && (
+                      <span className="text-[11px] font-medium text-[#756843] bg-[#f5f3eb] px-2 py-0.5 rounded-full border border-[#e7dfc5]">
+                        Due {new Date(doc.deadline).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+
+                  <h3 className="text-sm sm:text-base font-semibold text-slate-900 leading-snug">{doc.title}</h3>
+
+                  {doc.summary && (
+                    <p className="text-xs text-slate-500 line-clamp-1">{doc.summary}</p>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-400 pt-0.5">
+                    <span className="text-slate-600 font-medium">{depts}</span>
+                    {doc.target_semesters && doc.target_semesters.length > 0 && (
+                      <span>· Sem {doc.target_semesters.join(', ')}</span>
+                    )}
+                    <span>·</span>
+                    <span>{new Date(doc.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
                   </div>
                 </div>
 
@@ -295,7 +296,7 @@ export function AdminDocumentDirectory({ documents = [] }: AdminDocumentDirector
                     <button
                       onClick={() => handleQuickToggle(doc.id, 'restore')}
                       disabled={isTogglingId === doc.id}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-xs font-semibold rounded-lg shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-[#edf6f3] hover:bg-[#dceee9] border border-[#cce5df] text-[#176b61] text-xs font-semibold rounded-full shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
                       title="Restore back to live feed"
                     >
                       <span>♻️</span>
@@ -340,7 +341,7 @@ export function AdminDocumentDirectory({ documents = [] }: AdminDocumentDirector
                 setActiveTab('live')
                 setSearchQuery('')
               }}
-              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 underline pt-1"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-[#176b61] hover:text-[#12564f] underline pt-1"
             >
               Reset filters & show live circulars
             </button>

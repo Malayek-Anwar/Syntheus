@@ -22,11 +22,29 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    name: 'Attention',
+    href: '/student/attention',
+    icon: ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M12 9v3m0 4h.01M10.3 4.6l-7.2 12.5A1.8 1.8 0 004.7 20h14.6a1.8 1.8 0 001.6-2.9L13.7 4.6a2 2 0 00-3.4 0z" />
+      </svg>
+    ),
+  },
+  {
     name: 'Institutional Notices',
     href: '/student/notices',
     icon: ({ className }) => (
       <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+      </svg>
+    ),
+  },
+  {
+    name: 'Archive',
+    href: '/student/archive',
+    icon: ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
       </svg>
     ),
   },
@@ -65,15 +83,15 @@ export function StudentSidebarNav({ onItemClick }: { onItemClick?: () => void })
             key={item.href}
             href={item.href}
             onClick={() => onItemClick?.()}
-            className={`flex items-center gap-3 px-3.5 py-2.5 text-sm font-medium rounded-lg transition-all ${
+            className={`group flex items-center gap-3 px-3.5 py-2.5 text-sm font-medium rounded-lg transition-all ${
               isActive
-                ? 'bg-black text-white shadow-xs font-semibold'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                ? 'bg-[#e8f3f0] text-[#176b61] font-semibold'
+                : 'text-gray-600 hover:bg-[#f1f5f3] hover:text-gray-900'
             }`}
           >
             <item.icon
               className={`w-5 h-5 flex-shrink-0 transition-colors ${
-                isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'
+                isActive ? 'text-[#176b61]' : 'text-gray-400 group-hover:text-gray-600'
               }`}
             />
             <span>{item.name}</span>

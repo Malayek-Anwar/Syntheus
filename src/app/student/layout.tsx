@@ -11,14 +11,14 @@ export default async function StudentLayout({
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.user_metadata?.role !== 'student') {
+  if (!user) {
     redirect('/login')
   }
 
   return (
     <StudentShell
       userEmail={user.email || ''}
-      userDepartment={user.user_metadata?.department || ''}
+      userDepartment={user.user_metadata?.department || 'Student'}
       signOutAction={signout}
     >
       {children}

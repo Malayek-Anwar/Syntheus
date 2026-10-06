@@ -1,7 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { updateDocument, type DocType, type TimelineMilestone } from '@/app/admin/actions'
+import { safeDateInputValue } from '@/utils/deadlines'
+import { getErrorMessage } from '@/utils/errors'
 import { useRouter } from 'next/navigation'
 
 const DOC_TYPE_OPTIONS: { type: DocType; label: string; icon: string; desc: string }[] = [
@@ -26,6 +28,7 @@ export interface AdminDocumentItem {
   action_items?: string[] | null
   timeline?: TimelineMilestone[] | null
   dates?: string | null
+  starts_at?: string | null
   deadline?: string | null
   priority?: string | null
   audience?: string | null
@@ -51,6 +54,26 @@ export function EditAdminDocumentModal({
   onClose,
 }: EditAdminDocumentModalProps) {
   const router = useRouter()
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    const previousOverflow = window.getComputedStyle(window.document.body).overflow
+    window.document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isOpen, onClose])
+
   if (!isOpen || !document) return null
 
   return <EditAdminDocumentModalForm document={document} onClose={onClose} router={router} />
@@ -104,60 +127,82 @@ function EditAdminDocumentModalForm({
     setIsSaving(true)
     setError(null)
 
-    const formData = new FormData(e.currentTarget)
+    try {
+      const formData = new FormData(e.currentTarget)
 
-    const keyPointsRaw = formData.get('key_points') as string
-    const key_points = keyPointsRaw
-      ? keyPointsRaw.split('\n').map(line => line.replace(/^[•\-\*]\s*/, '').trim()).filter(Boolean)
-      : document.key_points || []
+      const keyPointsRaw = formData.get('key_points') as string
+      const key_points = keyPointsRaw
+        ? keyPointsRaw.split('\n').map(line => line.replace(/^[•\-\*]\s*/, '').trim()).filter(Boolean)
+        : document.key_points || []
 
-    const actionItemsRaw = formData.get('action_items') as string
-    const action_items = actionItemsRaw
-      ? actionItemsRaw.split('\n').map(line => line.replace(/^(\d+\.|\-|\*|\[\s*\])\s*/, '').trim()).filter(Boolean)
-      : document.action_items || []
+      const actionItemsRaw = formData.get('action_items') as string
+      const action_items = actionItemsRaw
+        ? actionItemsRaw.split('\n').map(line => line.replace(/^(\d+\.|\-|\*|\[\s*\])\s*/, '').trim()).filter(Boolean)
+        : document.action_items || []
 
-    const is_published = currentStatus === 'published'
-    const is_archived = currentStatus === 'archived'
+      const is_published = currentStatus === 'published'
+      const is_archived = currentStatus === 'archived'
 
-    const result = await updateDocument({
-      id: document.id,
-      title: (formData.get('title') as string) || document.title,
-      doc_type: selectedDocType,
-      category: (formData.get('category') as string) || document.category || 'General',
-      audience: selectedDepts.join(', '),
-      target_departments: selectedDepts,
-      target_semesters: selectedSems,
-      summary: (formData.get('summary') as string) || document.summary || '',
-      key_points,
-      action_items,
-      timeline: timelineItems,
-      dates: (formData.get('dates') as string) || document.dates || '',
-      deadline: (formData.get('deadline') as string) || null,
-      priority: (formData.get('priority') as string) || document.priority || 'Medium',
-      subject_code: (formData.get('subject_code') as string) || null,
-      is_published,
-      is_archived,
-      status: currentStatus,
-    })
+      const subjectCodeInput = formData.get('subject_code') as string | null
+      const subject_code = subjectCodeInput !== null ? (subjectCodeInput.trim() || null) : (document.subject_code || null)
 
-    if (!result.success) {
-      setError(result.error || 'Failed to update document')
+      const datesInput = formData.get('dates') as string | null
+      const dates = datesInput !== null ? datesInput.trim() : (document.dates || '')
+
+      const startsAtInput = formData.get('starts_at') as string | null
+      const starts_at = startsAtInput ? startsAtInput.trim() : null
+
+      const deadlineInput = formData.get('deadline') as string | null
+      const deadline = deadlineInput ? deadlineInput.trim() : null
+
+      const result = await updateDocument({
+        id: document.id,
+        title: (formData.get('title') as string) || document.title,
+        doc_type: selectedDocType,
+        category: (formData.get('category') as string) || document.category || 'General',
+        audience: selectedDepts.join(', '),
+        target_departments: selectedDepts,
+        target_semesters: selectedSems,
+        summary: (formData.get('summary') as string) || document.summary || '',
+        key_points,
+        action_items,
+        timeline: timelineItems,
+        dates,
+        starts_at,
+        deadline,
+        priority: (formData.get('priority') as string) || document.priority || 'Medium',
+        subject_code,
+        is_published,
+        is_archived,
+        status: currentStatus,
+      })
+
+      if (!result.success) {
+        setError(result.error || 'Failed to update document')
+        return
+      }
+
+      onClose()
+      router.refresh()
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
       setIsSaving(false)
-      return
     }
-
-    setIsSaving(false)
-    onClose()
-    router.refresh()
   }
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="edit-document-modal-title"
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200"
+    >
       <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/80">
           <div>
-            <h3 className="text-lg font-bold text-gray-900 tracking-tight flex items-center gap-2">
+            <h3 id="edit-document-modal-title" className="text-lg font-bold text-gray-900 tracking-tight flex items-center gap-2">
               <span>✏️</span> Edit Notice & Document Intelligence
             </h3>
             <p className="text-xs text-gray-500 mt-0.5">
@@ -166,7 +211,8 @@ function EditAdminDocumentModalForm({
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-200/60 transition-colors"
+            className="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-200/60 transition-colors cursor-pointer"
+            aria-label="Close edit modal"
           >
             ✕
           </button>
@@ -175,8 +221,8 @@ function EditAdminDocumentModalForm({
         {/* Modal Body / Scrollable Form */}
         <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-6 flex-1">
           {/* Status & Lifecycle Banner */}
-          <div className="bg-blue-50/50 border border-blue-200/60 rounded-xl p-3.5 space-y-2">
-            <span className="text-xs font-bold text-blue-950 uppercase tracking-wider block">
+          <div className="bg-[#f0f6f4] border border-[#cce5df] rounded-xl p-3.5 space-y-2">
+            <span className="text-xs font-bold text-[#244b46] uppercase tracking-wider block">
               Publication Lifecycle Status
             </span>
             <div className="grid grid-cols-3 gap-2">
@@ -232,7 +278,7 @@ function EditAdminDocumentModalForm({
                   onClick={() => setSelectedDocType(opt.type)}
                   className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
                     selectedDocType === opt.type
-                      ? 'bg-blue-50/80 border-blue-500 ring-2 ring-blue-500/20 text-blue-900 shadow-2xs'
+                      ? 'bg-[#edf6f3] border-[#72b5aa] ring-2 ring-[#72b5aa]/20 text-[#244b46] shadow-2xs'
                       : 'bg-white border-gray-200 hover:border-gray-300 text-gray-700 hover:bg-gray-50/50'
                   }`}
                 >
@@ -246,7 +292,7 @@ function EditAdminDocumentModalForm({
             </div>
           </div>
 
-          {/* 2. Title & Category */}
+          {/* 2. Title, Category & Subject Code */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="sm:col-span-2">
               <label className="block text-xs font-semibold text-gray-700 mb-1">Notice Title</label>
@@ -255,7 +301,7 @@ function EditAdminDocumentModalForm({
                 name="title"
                 defaultValue={document.title}
                 required
-                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 shadow-2xs outline-none"
+                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-sm text-gray-900 focus:border-[#176b61] focus:ring-2 focus:ring-[#176b61]/20 shadow-2xs outline-none"
               />
             </div>
             <div>
@@ -264,18 +310,41 @@ function EditAdminDocumentModalForm({
                 type="text"
                 name="category"
                 defaultValue={document.category || 'General'}
-                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 shadow-2xs outline-none"
+                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-sm text-gray-900 focus:border-[#176b61] focus:ring-2 focus:ring-[#176b61]/20 shadow-2xs outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Subject Code / Course (Optional)</label>
+              <input
+                type="text"
+                name="subject_code"
+                defaultValue={document.subject_code || ''}
+                placeholder="e.g. CS301 / Operating Systems"
+                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-sm text-gray-900 focus:border-[#176b61] focus:ring-2 focus:ring-[#176b61]/20 shadow-2xs outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Dates Label (Optional)</label>
+              <input
+                type="text"
+                name="dates"
+                defaultValue={document.dates || ''}
+                placeholder="e.g. 15 Oct - 25 Oct"
+                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-sm text-gray-900 focus:border-[#176b61] focus:ring-2 focus:ring-[#176b61]/20 shadow-2xs outline-none"
               />
             </div>
           </div>
 
           {/* 3. AI Executive Summary */}
-          <div className="bg-blue-50/40 rounded-xl border border-blue-200/60 p-4 space-y-2">
+          <div className="bg-[#f4faf8] rounded-xl border border-[#cce5df] p-4 space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-blue-950 flex items-center gap-1.5">
+              <label className="text-xs font-bold text-[#244b46] flex items-center gap-1.5">
                 ✨ AI Executive Summary
               </label>
-              <span className="text-[11px] text-blue-700 font-medium bg-blue-100/70 px-2 py-0.5 rounded">
+              <span className="text-[11px] text-[#176b61] font-medium bg-[#dceee9] px-2 py-0.5 rounded">
                 Plain-English Brief
               </span>
             </div>
@@ -283,7 +352,7 @@ function EditAdminDocumentModalForm({
               name="summary"
               rows={3}
               defaultValue={document.summary || ''}
-              className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-xs sm:text-sm text-gray-900 leading-relaxed focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 shadow-2xs outline-none"
+              className="w-full rounded-xl border border-[#cce5df] bg-white px-3.5 py-2.5 text-xs sm:text-sm text-gray-900 leading-relaxed focus:border-[#176b61] focus:ring-2 focus:ring-[#176b61]/20 shadow-2xs outline-none"
               placeholder="Executive brief of this notice..."
             />
           </div>
@@ -298,7 +367,7 @@ function EditAdminDocumentModalForm({
                 name="key_points"
                 rows={4}
                 defaultValue={(document.key_points || []).map(p => `• ${p}`).join('\n')}
-                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-xs text-gray-900 leading-relaxed focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 shadow-2xs outline-none"
+                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-xs text-gray-900 leading-relaxed focus:border-[#176b61] focus:ring-2 focus:ring-[#176b61]/20 shadow-2xs outline-none"
                 placeholder="• Rule 1&#10;• Rule 2"
               />
             </div>
@@ -311,7 +380,7 @@ function EditAdminDocumentModalForm({
                 name="action_items"
                 rows={4}
                 defaultValue={(document.action_items || []).map((a, i) => `${i + 1}. ${a}`).join('\n')}
-                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-xs text-gray-900 leading-relaxed focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 shadow-2xs outline-none"
+                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-xs text-gray-900 leading-relaxed focus:border-[#176b61] focus:ring-2 focus:ring-[#176b61]/20 shadow-2xs outline-none"
                 placeholder="1. Action step 1&#10;2. Action step 2"
               />
             </div>
@@ -331,7 +400,7 @@ function EditAdminDocumentModalForm({
                     { label: 'New Stage', date: new Date().toISOString().split('T')[0], fee_penalty: null, description: null }
                   ])
                 }}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-white hover:bg-blue-50 px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs cursor-pointer"
+                className="text-xs font-semibold text-[#176b61] hover:text-[#12564f] bg-white hover:bg-[#edf6f3] px-2.5 py-1 rounded-lg border border-[#cce5df] shadow-2xs cursor-pointer"
               >
                 + Add Stage
               </button>
@@ -377,6 +446,7 @@ function EditAdminDocumentModalForm({
                       type="button"
                       onClick={() => setTimelineItems(timelineItems.filter((_, i) => i !== idx))}
                       className="text-red-500 hover:text-red-700 px-1.5 py-1 text-xs cursor-pointer"
+                      title="Remove stage"
                     >
                       ✕
                     </button>
@@ -414,7 +484,7 @@ function EditAdminDocumentModalForm({
                     onClick={() => toggleDept(dept)}
                     className={`px-3 py-1 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
                       selectedDepts.includes(dept) && !selectedDepts.includes('All')
-                        ? 'bg-blue-600 text-white border-blue-600'
+                        ? 'bg-[#176b61] text-white border-[#176b61]'
                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                     }`}
                   >
@@ -434,7 +504,7 @@ function EditAdminDocumentModalForm({
                     onClick={() => toggleSem(sem)}
                     className={`w-9 h-8 text-xs font-semibold rounded-lg border transition-colors cursor-pointer flex items-center justify-center ${
                       selectedSems.includes(sem)
-                        ? 'bg-blue-600 text-white border-blue-600'
+                        ? 'bg-[#176b61] text-white border-[#176b61]'
                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                     }`}
                   >
@@ -445,15 +515,24 @@ function EditAdminDocumentModalForm({
             </div>
           </div>
 
-          {/* 7. Deadline & Priority */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* 7. Start Date, Deadline & Priority */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Start Date (Optional)</label>
+              <input
+                type="date"
+                name="starts_at"
+                defaultValue={safeDateInputValue(document.starts_at)}
+                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-sm text-gray-900 focus:border-[#176b61] focus:ring-2 focus:ring-[#176b61]/20 shadow-2xs outline-none"
+              />
+            </div>
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">Primary Deadline</label>
               <input
                 type="date"
                 name="deadline"
-                defaultValue={document.deadline ? new Date(document.deadline).toISOString().split('T')[0] : ''}
-                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 shadow-2xs outline-none"
+                defaultValue={safeDateInputValue(document.deadline)}
+                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-sm text-gray-900 focus:border-[#176b61] focus:ring-2 focus:ring-[#176b61]/20 shadow-2xs outline-none"
               />
             </div>
             <div>
@@ -461,7 +540,7 @@ function EditAdminDocumentModalForm({
               <select
                 name="priority"
                 defaultValue={document.priority || 'Medium'}
-                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 shadow-2xs outline-none"
+                className="w-full rounded-xl border border-gray-300 px-3.5 py-2 text-sm text-gray-900 focus:border-[#176b61] focus:ring-2 focus:ring-[#176b61]/20 shadow-2xs outline-none"
               >
                 <option value="High">🔴 High Priority (Action Required)</option>
                 <option value="Medium">🟡 Medium Priority (Standard Notice)</option>
@@ -481,15 +560,19 @@ function EditAdminDocumentModalForm({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-lg shadow-2xs cursor-pointer"
+              disabled={isSaving}
+              className="px-4 py-2 text-xs font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-lg shadow-2xs cursor-pointer disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSaving}
-              className="px-6 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md hover:shadow-lg disabled:opacity-50 cursor-pointer transition-all flex items-center gap-2"
+              className="px-6 py-2 text-xs font-bold text-white bg-[#176b61] hover:bg-[#12564f] rounded-full shadow-md hover:shadow-lg disabled:opacity-50 cursor-pointer transition-all flex items-center gap-2"
             >
+              {isSaving && (
+                <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              )}
               {isSaving ? 'Saving Changes...' : 'Save & Update Document'}
             </button>
           </div>

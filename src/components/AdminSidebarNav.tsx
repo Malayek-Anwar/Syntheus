@@ -38,15 +38,15 @@ export function AdminSidebarNav({ onItemClick }: { onItemClick?: () => void }) {
             key={item.href}
             href={item.href}
             onClick={() => onItemClick?.()}
-            className={`flex items-center gap-3 px-3.5 py-2.5 text-sm font-medium rounded-lg transition-all ${
+            className={`group flex items-center gap-3 px-3.5 py-2.5 text-sm font-medium rounded-lg transition-all ${
               isActive
-                ? 'bg-black text-white shadow-xs font-semibold'
-                : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                ? 'bg-[#e8f3f0] text-[#176b61] font-semibold'
+                : 'text-gray-600 hover:bg-[#f1f5f3] hover:text-gray-900'
             }`}
           >
             <item.icon
               className={`w-5 h-5 flex-shrink-0 transition-colors ${
-                isActive ? 'text-white' : 'text-gray-400 group-hover:text-gray-600'
+                isActive ? 'text-[#176b61]' : 'text-gray-400 group-hover:text-gray-600'
               }`}
             />
             <span>{item.name}</span>

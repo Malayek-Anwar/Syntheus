@@ -19,6 +19,10 @@ type CampusMatch = {
 type CampusDocument = {
   title: string
   category: string | null
+  doc_type?: string | null
+  summary?: string | null
+  key_points?: string[] | null
+  action_items?: string[] | null
   target_departments: string[] | null
   target_semesters: number[] | null
   dates: string | null
@@ -148,7 +152,7 @@ async function getCampusContext(
   // Fallback: fetch published notices matching student's department & semester
   let fallbackQuery = supabase
     .from('documents')
-    .select('title, category, target_departments, target_semesters, dates, deadline, file_url')
+    .select('title, category, doc_type, summary, key_points, action_items, target_departments, target_semesters, dates, deadline, file_url')
     .eq('is_published', true)
 
   if (studentDept) {
@@ -169,13 +173,23 @@ async function getCampusContext(
 
   const contexts: string[] = []
   for (const document of (documents ?? []) as CampusDocument[]) {
-    if (!document.file_url) continue
-
-    const text = await extractTextFromStorageOrUrl(supabase, document.file_url, 'documents')
-    if (!text) continue
-
     const depts = document.target_departments && document.target_departments.length > 0 ? document.target_departments.join(', ') : 'All'
     const sems = document.target_semesters && document.target_semesters.length > 0 ? document.target_semesters.join(', ') : 'All'
+
+    let contentText = ''
+    if (document.summary) {
+      const summaryPart = `Summary: ${document.summary}\n`
+      const keyPointsPart = document.key_points && document.key_points.length > 0 ? `Key Points:\n- ${document.key_points.join('\n- ')}\n` : ''
+      const actionItemsPart = document.action_items && document.action_items.length > 0 ? `Action Items:\n- ${document.action_items.join('\n- ')}\n` : ''
+      contentText = `${summaryPart}${keyPointsPart}${actionItemsPart}`.trim()
+    } else if (document.file_url) {
+      const text = await extractTextFromStorageOrUrl(supabase, document.file_url, 'documents')
+      if (text) {
+        contentText = text.slice(0, 4000)
+      }
+    }
+
+    if (!contentText) continue
 
     contexts.push(
       `Campus notice: ${document.title}
@@ -184,7 +198,7 @@ Target Departments: ${depts}
 Target Semesters: ${sems}
 Dates: ${document.dates ?? 'Not specified'}
 Deadline: ${document.deadline ?? 'Not specified'}
-Content: ${text.slice(0, 6000)}`
+Content: ${contentText}`
     )
   }
 

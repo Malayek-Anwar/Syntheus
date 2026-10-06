@@ -159,18 +159,15 @@ export function isAudienceVisibleToStudent(
     sems.length === 0 ||
     ALL_SEMESTERS.every(s => sems.includes(s))
 
-  const matchesDept = depts.includes(studentDept)
-  const matchesSem = sems.includes(studentSem)
+  // 1. Universal campus-wide notice targeting all departments and all semesters
+  if (isAllDepts && isAllSems) return true
 
-  // 1. Department = All AND Semester = student's semester (or All Semesters)
-  if (isAllDepts && matchesSem) return true
+  // 2. Department check: matches if all departments or specific department is included
+  const matchesDept = isAllDepts || depts.includes(studentDept)
 
-  // 2. Department = student's department AND Semester = All
-  if (matchesDept && isAllSems) return true
+  // 3. Semester check: matches if all semesters or specific semester is included
+  const matchesSem = isAllSems || sems.includes(studentSem)
 
-  // 3. Department = student's department AND Semester = student's semester
-  if (matchesDept && matchesSem) return true
-
-  return false
+  return matchesDept && matchesSem
 }
 

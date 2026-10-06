@@ -60,52 +60,28 @@ export default async function AdminDashboard() {
 
       {/* Quick Stats Cards */}
       <section className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3.5 shadow-2xs">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center flex-shrink-0">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-gray-900">{liveCount}</p>
-            <p className="text-xs text-gray-500 font-medium">Live Notices</p>
-          </div>
+        <div className="bg-white rounded-xl border border-[#dfe7e3] p-5 space-y-1 shadow-xs">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Live Circulars</p>
+          <p className="text-3xl font-extrabold text-[#176b61] tracking-tight">{liveCount}</p>
+          <p className="text-[11px] text-slate-400">Published to student feed</p>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3.5 shadow-2xs">
-          <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center flex-shrink-0">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-gray-900">{draftCount}</p>
-            <p className="text-xs text-gray-500 font-medium">Drafts</p>
-          </div>
+        <div className="bg-white rounded-xl border border-[#dfe7e3] p-5 space-y-1 shadow-xs">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Drafts</p>
+          <p className="text-3xl font-extrabold text-amber-700 tracking-tight">{draftCount}</p>
+          <p className="text-[11px] text-slate-400">Hidden from students</p>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3.5 shadow-2xs">
-          <div className="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 border border-orange-200 flex items-center justify-center flex-shrink-0">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-gray-900">{activeDeadlines}</p>
-            <p className="text-xs text-gray-500 font-medium">Active Deadlines</p>
-          </div>
+        <div className="bg-white rounded-xl border border-[#dfe7e3] p-5 space-y-1 shadow-xs">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Deadlines</p>
+          <p className="text-3xl font-extrabold text-slate-900 tracking-tight">{activeDeadlines}</p>
+          <p className="text-[11px] text-slate-400">Cutoffs pending</p>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3.5 shadow-2xs">
-          <div className="w-10 h-10 rounded-xl bg-gray-100 text-gray-600 border border-gray-200 flex items-center justify-center flex-shrink-0">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-            </svg>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-gray-900">{archivedCount}</p>
-            <p className="text-xs text-gray-500 font-medium">Archived</p>
-          </div>
+        <div className="bg-white rounded-xl border border-[#dfe7e3] p-5 space-y-1 shadow-xs">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Archived</p>
+          <p className="text-3xl font-extrabold text-slate-700 tracking-tight">{archivedCount}</p>
+          <p className="text-[11px] text-slate-400">Historical records</p>
         </div>
       </section>
 

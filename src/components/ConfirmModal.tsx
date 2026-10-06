@@ -28,18 +28,24 @@ export function ConfirmModal({
   const modalRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    if (!isOpen) return
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !isLoading) {
         onCancel()
       }
     }
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = 'hidden'
-    }
+
+    const previousOverflow = window.getComputedStyle(document.body).overflow
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', handleKeyDown)
+
+    // Focus the modal container for accessibility
+    modalRef.current?.focus()
+
     return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = 'unset'
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleKeyDown)
     }
   }, [isOpen, isLoading, onCancel])
 
@@ -58,7 +64,9 @@ export function ConfirmModal({
         ref={modalRef}
         role="dialog"
         aria-modal="true"
-        className="relative bg-white rounded-2xl shadow-2xl border border-gray-100 max-w-md w-full p-6 z-10 animate-in zoom-in-95 duration-150 space-y-4"
+        aria-labelledby="confirm-modal-title"
+        tabIndex={-1}
+        className="relative bg-white rounded-2xl shadow-2xl border border-gray-100 max-w-md w-full p-6 z-10 animate-in zoom-in-95 duration-150 space-y-4 outline-none"
       >
         <div className="flex items-start gap-4">
           {isDestructive ? (
@@ -68,14 +76,14 @@ export function ConfirmModal({
               </svg>
             </div>
           ) : (
-            <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <div className="w-10 h-10 rounded-full bg-[#edf6f3] text-[#176b61] flex items-center justify-center flex-shrink-0 mt-0.5">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-bold text-gray-900 leading-6">{title}</h3>
+            <h3 id="confirm-modal-title" className="text-lg font-bold text-gray-900 leading-6">{title}</h3>
             <p className="mt-1 text-sm text-gray-500 leading-relaxed">{message}</p>
           </div>
         </div>
@@ -94,7 +102,7 @@ export function ConfirmModal({
             disabled={isLoading}
             onClick={onConfirm}
             className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2 cursor-pointer shadow-xs ${
-              isDestructive ? 'bg-red-600 hover:bg-red-700' : 'bg-black hover:bg-gray-800'
+              isDestructive ? 'bg-red-600 hover:bg-red-700' : 'bg-[#176b61] hover:bg-[#12564f]'
             }`}
           >
             {isLoading && (

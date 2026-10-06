@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
   })
@@ -15,7 +15,7 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({
             request,
           })
@@ -33,24 +33,33 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
+  // Helper to construct redirect response while preserving refreshed session cookies
+  const createRedirect = (destination: string) => {
+    const redirectResponse = NextResponse.redirect(new URL(destination, request.url))
+    supabaseResponse.cookies.getAll().forEach((cookie) => {
+      redirectResponse.cookies.set(cookie.name, cookie.value, cookie)
+    })
+    return redirectResponse
+  }
+
   // Intercept any request to /admin/*
   if (pathname.startsWith('/admin')) {
     if (!user) {
-      return NextResponse.redirect(new URL('/login', request.url))
+      return createRedirect('/login')
     }
 
-    const role = user.user_metadata?.role
+    const role = user.app_metadata?.role || user.user_metadata?.role
 
-    // If the authenticated user's role is not explicitly 'admin', redirect to student dashboard immediately
+    // If the authenticated user's role is not explicitly 'admin', redirect to unauthorized page
     if (role !== 'admin') {
-      return NextResponse.redirect(new URL('/student', request.url))
+      return createRedirect('/unauthorized')
     }
   }
 
   // Protect /student routes
   if (pathname.startsWith('/student')) {
     if (!user) {
-      return NextResponse.redirect(new URL('/login', request.url))
+      return createRedirect('/login')
     }
   }
 
@@ -60,11 +69,11 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Match all request paths except for the ones starting with:
+     * Match all request paths except for:
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * Feel free to modify this pattern to include more paths.
+     * - static image/asset extensions
      */
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],

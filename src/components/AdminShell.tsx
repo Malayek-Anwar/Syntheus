@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { usePathname } from 'next/navigation'
 import { AdminSidebarNav } from './AdminSidebarNav'
+import { BrandLogo } from './BrandLogo'
 
 interface AdminShellProps {
   userEmail: string
@@ -16,31 +16,33 @@ export function AdminShell({
   children,
 }: AdminShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const pathname = usePathname()
 
-  // Close mobile drawer on route change
   useEffect(() => {
-    setMobileMenuOpen(false)
-  }, [pathname])
+    if (!mobileMenuOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileMenuOpen(false)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [mobileMenuOpen])
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
+    <div className="flex h-screen bg-[#f5f7f6] overflow-hidden">
       {/* 1. Desktop Fixed Sidebar */}
-      <aside className="hidden md:flex md:w-64 md:flex-col md:flex-shrink-0 bg-white border-r border-gray-200 justify-between">
+      <aside className="hidden md:flex md:w-64 md:flex-col md:flex-shrink-0 bg-[#fbfcfb] border-r border-[#dfe7e3] justify-between">
         <div>
-          <div className="h-16 flex items-center gap-3 px-6 border-b border-gray-200">
-            <div className="w-8 h-8 rounded-lg bg-black text-white flex items-center justify-center font-bold text-sm shadow-xs flex-shrink-0">
-              S
-            </div>
-            <div className="min-w-0">
-              <span className="text-base font-bold text-gray-900 tracking-tight block">Syntheus</span>
-              <span className="text-[10px] text-gray-500 font-semibold tracking-wide uppercase block -mt-1">Admin Portal</span>
-            </div>
+          <div className="h-16 flex items-center px-5 border-b border-[#dfe7e3]">
+            <BrandLogo 
+              iconSize="w-8 h-8" 
+              textSize="text-base" 
+              subtitle="Admin Portal" 
+              href="/admin" 
+            />
           </div>
           <AdminSidebarNav />
         </div>
 
-        <div className="p-4 border-t border-gray-200">
+        <div className="p-4 border-t border-[#dfe7e3]">
           <div className="mb-3 px-3">
             <p className="text-sm font-semibold text-gray-900 truncate">{userEmail}</p>
             <p className="text-xs text-gray-500 truncate">Administrator</p>
@@ -64,19 +66,19 @@ export function AdminShell({
         <div className="fixed inset-0 z-50 md:hidden flex">
           {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity"
+            className="fixed inset-0 bg-[#24302d]/25 backdrop-blur-xs transition-opacity"
             onClick={() => setMobileMenuOpen(false)}
           />
 
           {/* Drawer Content */}
           <div className="relative flex-1 flex flex-col max-w-xs w-full bg-white shadow-2xl z-10 animate-in slide-in-from-left duration-200">
-            <div className="h-16 flex items-center justify-between px-6 border-b border-gray-200">
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-black text-white flex items-center justify-center font-bold text-xs shadow-xs">
-                  S
-                </div>
-                <span className="text-base font-bold text-gray-900">Syntheus</span>
-              </div>
+            <div className="h-16 flex items-center justify-between px-5 border-b border-[#dfe7e3]">
+              <BrandLogo 
+                iconSize="w-7 h-7" 
+                textSize="text-sm" 
+                subtitle="Admin Portal" 
+                href="/admin" 
+              />
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(false)}
@@ -93,7 +95,7 @@ export function AdminShell({
               <AdminSidebarNav onItemClick={() => setMobileMenuOpen(false)} />
             </div>
 
-            <div className="p-4 border-t border-gray-200">
+            <div className="p-4 border-t border-[#dfe7e3]">
               <div className="mb-3 px-3">
                 <p className="text-sm font-semibold text-gray-900 truncate">{userEmail}</p>
                 <p className="text-xs text-gray-500 truncate">Administrator</p>
@@ -117,7 +119,7 @@ export function AdminShell({
       {/* 3. Main Content Column */}
       <div className="flex flex-col flex-1 min-w-0 h-screen overflow-hidden">
         {/* Mobile Top Header */}
-        <header className="md:hidden flex items-center justify-between h-16 px-4 bg-white border-b border-gray-200 flex-shrink-0 z-10">
+        <header className="md:hidden flex items-center justify-between h-16 px-4 bg-[#fbfcfb] border-b border-[#dfe7e3] flex-shrink-0 z-10">
           <button
             type="button"
             onClick={() => setMobileMenuOpen(true)}
@@ -128,12 +130,7 @@ export function AdminShell({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-md bg-black text-white flex items-center justify-center font-bold text-[11px] shadow-xs">
-              S
-            </div>
-            <span className="text-base font-bold text-gray-900">Syntheus</span>
-          </div>
+          <BrandLogo iconSize="w-7 h-7" textSize="text-base" href="/admin" />
           <div className="w-10" />
         </header>
 

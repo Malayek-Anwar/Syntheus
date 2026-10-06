@@ -7,6 +7,7 @@ import { DefaultChatTransport, isTextUIPart, type UIMessage } from 'ai'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { SUGGESTED_PROMPTS, type SuggestionPrompt } from '@/utils/constants'
+import { findAttentionNotice, markNoticeFinished } from '@/app/student/attention/actions'
 
 export function StudentChat({
   initialMessages,
@@ -21,9 +22,13 @@ export function StudentChat({
   const hasTriggeredRef = useRef(false)
   const [input, setInput] = useState('')
   const [chatError, setChatError] = useState<string | null>(null)
+  const [isClearing, setIsClearing] = useState(false)
+  const [completionCandidate, setCompletionCandidate] = useState<{ id: string; title: string } | null>(null)
+  const [completionError, setCompletionError] = useState<string | null>(null)
+  const [isCompleting, setIsCompleting] = useState(false)
   const transport = useMemo(() => new DefaultChatTransport({ api: '/api/chat' }), [])
 
-  const { messages, status, sendMessage } = useChat({
+  const { messages, status, sendMessage, setMessages } = useChat({
     transport,
     messages: initialMessages,
     onError: (err) => {
@@ -49,14 +54,65 @@ export function StudentChat({
     }
   }, [initialQuery, sendMessage, router])
 
+  const handleClearChat = async () => {
+    if (messages.length === 0 || isClearing || isLoading) return
+    setIsClearing(true)
+    try {
+      const { clearChatHistory } = await import('@/app/student/chat/actions')
+      await clearChatHistory()
+      setMessages([])
+      router.refresh()
+    } catch {
+      setChatError('Failed to clear chat history.')
+    } finally {
+      setIsClearing(false)
+    }
+  }
+
   const onFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!input.trim() || isLoading) return
     
     setChatError(null)
+
+    const completionRequest = input.trim().match(/^(?:please\s+)?(?:mark|set)\s+(.+?)\s+(?:as\s+)?(?:finished|complete|completed)$/i)
+    if (completionRequest) {
+      setCompletionError(null)
+      try {
+        const result = await findAttentionNotice(completionRequest[1])
+        if (result.success && result.notice) {
+          setCompletionCandidate({ id: result.notice.id, title: result.notice.title })
+        } else {
+          setCompletionError(result.error || 'I could not find that attention item.')
+        }
+      } catch {
+        setCompletionError('Failed to search for attention item.')
+      }
+      setInput('')
+      return
+    }
+
     sendMessage({ text: input })
     
     setInput('')
+  }
+
+  const confirmCompletion = async () => {
+    if (!completionCandidate || isCompleting) return
+    setIsCompleting(true)
+    try {
+      const result = await markNoticeFinished(completionCandidate.id)
+      if (result.success) {
+        setCompletionCandidate(null)
+        router.refresh()
+      } else {
+        setCompletionError(result.error || 'Could not mark the notice as finished.')
+      }
+    } catch {
+      setCompletionError('Could not mark the notice as finished.')
+    } finally {
+      setIsCompleting(false)
+    }
   }
 
   const handleSuggestionClick = (queryText: string) => {
@@ -66,34 +122,52 @@ export function StudentChat({
   }
 
   return (
-    <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-gray-200 flex flex-col w-full h-full min-h-0 flex-1 overflow-hidden">
-      
+    <div className="flex-1 bg-white rounded-2xl shadow-xs border border-[#dfe7e3] flex flex-col overflow-hidden relative">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-[#dfe7e3] bg-white/90 backdrop-blur-sm z-10 sticky top-0">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-[#176b61]" />
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-800">Syntheus Intelligence Assistant</h2>
+        </div>
+        <button
+          onClick={handleClearChat}
+          disabled={isClearing || isLoading || messages.length === 0}
+          className="text-xs font-medium text-slate-400 hover:text-red-600 disabled:opacity-30 transition-colors flex items-center gap-1 cursor-pointer"
+          aria-label="Clear chat"
+        >
+          {isClearing ? 'Clearing...' : 'Clear History'}
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-hidden p-3 sm:p-5 flex flex-col gap-4">
       {messages.length === 0 && !initialQuery && (
-        <div className="text-center space-y-4 my-auto py-6 max-w-lg mx-auto w-full">
-          <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-2xl flex items-center justify-center mx-auto shadow-md">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="text-center space-y-4 my-auto py-8 max-w-lg mx-auto w-full">
+          <div className="w-11 h-11 bg-[#edf6f3] text-[#176b61] border border-[#cce5df] rounded-xl flex items-center justify-center mx-auto shadow-2xs">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
             </svg>
           </div>
           <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">AI Campus Assistant</h1>
-            <p className="text-xs sm:text-sm text-gray-500 mt-1">Ask about campus notices, exams, deadlines, schedules, and your uploaded private documents.</p>
+            <h1 className="text-lg sm:text-xl font-bold text-slate-900 tracking-tight">How can I assist your studies today?</h1>
+            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+              Ask about semester circulars, deadlines, fee structures, or your private uploaded course notes.
+            </p>
           </div>
 
           {/* Suggestion prompt cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 text-left w-full">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 text-left w-full">
             {suggestions.map((prompt) => (
               <button
                 key={prompt.label}
                 type="button"
                 onClick={() => handleSuggestionClick(prompt.query)}
-                className="group p-3 rounded-xl bg-white hover:bg-blue-50/50 border border-gray-200 hover:border-blue-300 text-left transition-all cursor-pointer shadow-2xs hover:shadow-xs active:scale-98"
+                className="group p-3 rounded-xl bg-[#fbfcfb] hover:bg-[#edf6f3] border border-[#dfe7e3] hover:border-[#a9d2c9] text-left transition-all cursor-pointer shadow-2xs active:scale-98"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-gray-900 group-hover:text-blue-700">{prompt.label}</span>
-                  <span className="text-gray-400 group-hover:text-blue-600 transition-transform group-hover:translate-x-0.5 text-xs">→</span>
+                  <span className="text-xs font-semibold text-slate-900 group-hover:text-[#176b61]">{prompt.label}</span>
+                  <span className="text-slate-400 group-hover:text-[#176b61] transition-transform group-hover:translate-x-0.5 text-xs">→</span>
                 </div>
-                <p className="text-xs text-gray-500 mt-1 line-clamp-1 group-hover:text-gray-700">{prompt.query}</p>
+                <p className="text-[11px] text-slate-500 mt-1 line-clamp-1 group-hover:text-slate-700">{prompt.query}</p>
               </button>
             ))}
           </div>
@@ -101,14 +175,14 @@ export function StudentChat({
       )}
 
       {/* Chat Messages */}
-      <div className="flex-1 overflow-y-auto mb-3 sm:mb-4 space-y-4 sm:space-y-6 px-1 sm:px-2 min-h-0">
+      <div className="flex-1 overflow-y-auto space-y-4 px-1 min-h-0">
         {messages.map((m) => (
           <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div 
-              className={`max-w-[90%] sm:max-w-[85%] rounded-2xl px-4 sm:px-5 py-2.5 sm:py-3 text-xs sm:text-sm ${
+              className={`max-w-[90%] sm:max-w-[85%] rounded-2xl px-4 sm:px-5 py-3 text-xs sm:text-sm ${
                 m.role === 'user' 
-                  ? 'bg-blue-600 text-white rounded-br-none shadow-xs' 
-                  : 'bg-gray-100 text-gray-900 rounded-bl-none border border-gray-200 shadow-xs'
+                  ? 'bg-[#176b61] text-white rounded-br-none shadow-2xs'
+                  : 'bg-[#fbfcfb] text-slate-900 rounded-bl-none border border-[#dfe7e3] shadow-2xs'
               }`}
             >
                 {m.role === 'user' ? (
@@ -159,7 +233,9 @@ export function StudentChat({
                           <strong className="font-semibold text-gray-950" {...props} />
                         ),
                         code: ({ className, children, ...props }) => {
-                          const isInline = !className?.includes('language-')
+                          const isLanguage = Boolean(className?.includes('language-'))
+                          const isMultiLine = typeof children === 'string' && children.includes('\n')
+                          const isInline = !isLanguage && !isMultiLine
                           return isInline ? (
                             <code className="bg-gray-200/90 text-gray-900 px-1.5 py-0.5 rounded text-[11px] sm:text-xs font-mono font-medium" {...props}>
                               {children}
@@ -174,7 +250,7 @@ export function StudentChat({
                           <pre className="bg-gray-900 text-gray-100 p-3 rounded-lg overflow-x-auto text-xs my-2 font-mono" {...props} />
                         ),
                         a: ({ ...props }) => (
-                          <a className="text-blue-600 hover:text-blue-800 underline font-medium" target="_blank" rel="noopener noreferrer" {...props} />
+                          <a className="text-[#176b61] hover:text-[#12564f] underline font-medium" target="_blank" rel="noopener noreferrer" {...props} />
                         ),
                       }}
                     >
@@ -188,7 +264,7 @@ export function StudentChat({
         {isLoading && (
           <div className="flex justify-start">
             <div className="bg-gray-100 text-gray-500 rounded-2xl rounded-bl-none px-4 sm:px-5 py-2.5 sm:py-3 text-xs sm:text-sm border border-gray-200 animate-pulse flex items-center gap-2">
-              <span className="inline-block w-2 h-2 rounded-full bg-blue-500 animate-ping" />
+              <span className="inline-block w-2 h-2 rounded-full bg-[#72b5aa] animate-ping" />
               Searching campus knowledge base...
             </div>
           </div>
@@ -212,20 +288,42 @@ export function StudentChat({
             </div>
           </div>
         )}
+        {(completionCandidate || completionError) && (
+          <div className="flex justify-start">
+            <div className="max-w-[90%] rounded-2xl rounded-bl-none px-4 py-3 text-xs sm:text-sm bg-[#f4faf8] text-gray-800 border border-[#cce5df] shadow-xs">
+              {completionCandidate ? (
+                <>
+                  <p>Mark <strong>{completionCandidate.title}</strong> as finished?</p>
+                  <div className="flex gap-2 mt-3">
+                    <button type="button" onClick={confirmCompletion} disabled={isCompleting} className="rounded-full bg-[#176b61] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60">
+                      {isCompleting ? 'Saving...' : 'Confirm'}
+                    </button>
+                    <button type="button" onClick={() => setCompletionCandidate(null)} className="rounded-full border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700">
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p>{completionError}</p>
+              )}
+            </div>
+          </div>
+        )}
         <div ref={messagesEndRef} />
+      </div>
       </div>
 
       {/* Quick Prompt Chips (Visible during active conversation) */}
       {messages.length > 0 && (
-        <div className="flex items-center gap-1.5 overflow-x-auto py-1.5 px-1 scrollbar-none flex-shrink-0">
-          <span className="text-[11px] text-blue-700 font-semibold bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200/50 flex-shrink-0 mr-0.5">Quick:</span>
+        <div className="flex items-center gap-1.5 overflow-x-auto py-2 px-3 border-t border-[#dfe7e3] bg-[#fbfcfb] no-scrollbar flex-shrink-0">
+          <span className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider flex-shrink-0 mr-1">Suggested:</span>
           {suggestions.map((prompt) => (
             <button
               key={prompt.label}
               type="button"
               disabled={isLoading}
               onClick={() => handleSuggestionClick(prompt.query)}
-              className="inline-flex items-center text-xs bg-white hover:bg-blue-50 text-gray-700 hover:text-blue-700 border border-gray-200 hover:border-blue-300 rounded-full px-2.5 py-1 whitespace-nowrap transition-all cursor-pointer disabled:opacity-50 flex-shrink-0 active:scale-95 shadow-2xs"
+              className="inline-flex items-center text-xs bg-white hover:bg-[#edf6f3] text-slate-700 hover:text-[#176b61] border border-[#dfe7e3] hover:border-[#a9d2c9] rounded-full px-3 py-1 whitespace-nowrap transition-all cursor-pointer disabled:opacity-50 flex-shrink-0 active:scale-95 shadow-2xs"
             >
               {prompt.label}
             </button>
@@ -234,21 +332,21 @@ export function StudentChat({
       )}
 
       {/* Input Area */}
-      <form onSubmit={onFormSubmit} className="relative mt-auto pt-1 flex-shrink-0">
+      <form onSubmit={onFormSubmit} className="relative p-3 border-t border-[#dfe7e3] bg-white flex-shrink-0">
         <input 
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask anything about your campus..." 
-          className="w-full pl-4 sm:pl-5 pr-12 sm:pr-14 py-3 sm:py-3.5 rounded-full border border-gray-300 shadow-sm focus:border-blue-600 focus:ring-2 focus:ring-blue-600/20 text-xs sm:text-sm md:text-base text-gray-900 placeholder-gray-400 outline-none transition-all"
+          placeholder="Ask anything about campus circulars, deadlines, or documents..." 
+          className="w-full pl-4 sm:pl-5 pr-12 sm:pr-14 py-3 rounded-full border border-[#dfe7e3] bg-[#fbfcfb] focus:bg-white shadow-2xs focus:border-[#176b61] focus:ring-2 focus:ring-[#176b61]/15 text-xs sm:text-sm text-slate-900 placeholder-slate-400 outline-none transition-all"
           disabled={isLoading}
         />
         <button 
           type="submit"
           disabled={isLoading || !input.trim()}
-          className="absolute right-1.5 sm:right-2 top-2.5 sm:top-2.5 p-2 sm:p-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-full transition-colors disabled:opacity-50 flex items-center justify-center cursor-pointer shadow-xs"
+          className="absolute right-4.5 sm:right-5 top-4.5 sm:top-4.5 p-2 sm:p-2 bg-[#176b61] hover:bg-[#12564f] active:bg-[#0e453f] text-white rounded-full transition-colors disabled:opacity-40 flex items-center justify-center cursor-pointer shadow-xs"
           aria-label="Send message"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 sm:w-5 sm:h-5">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
             <path fillRule="evenodd" d="M10 17a.75.75 0 01-.75-.75V5.612L5.29 9.77a.75.75 0 01-1.08-1.04l5.25-5.5a.75.75 0 011.08 0l5.25 5.5a.75.75 0 11-1.08 1.04l-3.96-4.158V16.25A.75.75 0 0110 17z" clipRule="evenodd" />
           </svg>
         </button>

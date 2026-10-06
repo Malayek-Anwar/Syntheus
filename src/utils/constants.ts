@@ -1,3 +1,5 @@
+import { isNoticeArchived } from '@/utils/deadlines'
+
 export type SuggestionPrompt = {
   label: string
   query: string
@@ -8,7 +10,12 @@ export type SuggestionContext = {
   department?: string
   semester?: number | string
   personalDocuments?: Array<{ title: string }>
-  recentNotices?: Array<{ title: string; category?: string | null; deadline?: string | null }>
+  recentNotices?: Array<{
+    title: string
+    category?: string | null
+    deadline?: string | null
+    is_archived?: boolean | null
+  }>
 }
 
 export function generatePersonalizedSuggestions(ctx?: SuggestionContext): SuggestionPrompt[] {
@@ -35,8 +42,9 @@ export function generatePersonalizedSuggestions(ctx?: SuggestionContext): Sugges
   }
 
   // 2. If there are active notices with deadlines for this student
-  if (ctx?.recentNotices && ctx.recentNotices.length > 0) {
-    const noticeWithDeadline = ctx.recentNotices.find((n) => n.deadline)
+  const activeNotices = ctx?.recentNotices?.filter((notice) => !isNoticeArchived(notice)) ?? []
+  if (activeNotices.length > 0) {
+    const noticeWithDeadline = activeNotices.find((n) => n.deadline)
     if (noticeWithDeadline) {
       const cleanNotice = noticeWithDeadline.title.replace(/\.pdf$/i, '').trim()
       const shortNotice = cleanNotice.length > 18 ? cleanNotice.slice(0, 16) + '...' : cleanNotice

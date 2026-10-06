@@ -1,7 +1,6 @@
 'use server'
 
 import { createClient } from '@/utils/supabase/server'
-import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 
 export async function login(formData: FormData) {
@@ -20,14 +19,12 @@ export async function login(formData: FormData) {
 
   // Find the role and redirect accordingly
   const { data: { user } } = await supabase.auth.getUser()
-  const role = user?.user_metadata?.role
+  const role = user?.app_metadata?.role || user?.user_metadata?.role
 
   if (role === 'admin') {
     redirect('/admin')
-  } else if (role === 'student') {
-    redirect('/student')
   } else {
-    redirect('/')
+    redirect('/student')
   }
 }
 
@@ -40,7 +37,7 @@ export async function signup(formData: FormData) {
 
   // Security: All public signups are strictly defaulted to 'student'.
   // Admin provisioning is handled manually by administrators.
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
@@ -54,6 +51,11 @@ export async function signup(formData: FormData) {
 
   if (error) {
     redirect(`/signup?message=${encodeURIComponent(error.message)}`)
+  }
+
+  // If email confirmation is required by Supabase, no active session exists yet
+  if (!data?.session) {
+    redirect(`/login?message=${encodeURIComponent('Account created successfully! Please check your email to verify your account before signing in.')}`)
   }
 
   redirect('/student')

@@ -1,5 +1,6 @@
 import { createClient } from '@/utils/supabase/server'
 import { normalizeAudience, isAudienceVisibleToStudent } from '@/utils/audience'
+import { isNoticeArchived } from '@/utils/deadlines'
 import { NoticeFilterFeed } from '@/components/NoticeFilterFeed'
 
 export default async function InstitutionalNoticesPage() {
@@ -25,8 +26,10 @@ export default async function InstitutionalNoticesPage() {
   // 3. User's semester across all departments
   // 4. All departments and all semesters (Campus Wide)
   // A student will NOT see documents meant for a different semester in a different department.
+  const now = new Date()
   const documents = (allDocuments ?? []).filter((doc) =>
-    isAudienceVisibleToStudent(doc, studentDept, studentSem)
+    isAudienceVisibleToStudent(doc, studentDept, studentSem) &&
+    !isNoticeArchived(doc, now)
   )
 
   return (
@@ -37,7 +40,7 @@ export default async function InstitutionalNoticesPage() {
           <p className="text-sm text-gray-500 mt-1">Verified academic circulars, fee notifications, exam schedules, and department briefs.</p>
         </div>
         <div className="flex-shrink-0">
-          <span className="inline-flex items-center text-xs font-semibold text-blue-700 bg-blue-50 px-3 py-1.5 rounded-full border border-blue-200">
+          <span className="inline-flex items-center text-xs font-semibold text-[#176b61] bg-[#edf6f3] px-3 py-1.5 rounded-full border border-[#cce5df]">
             {studentDept} • Semester {studentSem}
           </span>
         </div>

@@ -10,7 +10,7 @@ export default async function AdminLayout({
 }) {
   const auth = await verifyAdminAction()
   if (!auth.authorized) {
-    redirect('/student')
+    redirect('/unauthorized')
   }
 
   return (

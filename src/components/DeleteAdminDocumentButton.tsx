@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { deletePublishedDocument } from '@/app/admin/actions'
 import { ConfirmModal } from '@/components/ConfirmModal'
+import { getErrorMessage } from '@/utils/errors'
 
 export function DeleteAdminDocumentButton({ id, fileUrl }: { id: string, fileUrl: string }) {
   const [isDeleting, setIsDeleting] = useState(false)
@@ -15,23 +16,29 @@ export function DeleteAdminDocumentButton({ id, fileUrl }: { id: string, fileUrl
     setIsDeleting(true)
     setError(null)
 
-    const result = await deletePublishedDocument(id, fileUrl)
-    
-    if (!result.success) {
-      setError(result.error || 'Failed to delete campus document')
-      setIsDeleting(false)
-      setIsModalOpen(false)
-      return
-    }
+    try {
+      const result = await deletePublishedDocument(id, fileUrl)
+      
+      if (!result.success) {
+        setError(result.error || 'Failed to delete campus document')
+        setIsModalOpen(false)
+        return
+      }
 
-    setIsModalOpen(false)
-    setIsDeleting(false)
-    router.refresh()
+      setIsModalOpen(false)
+      router.refresh()
+    } catch (err) {
+      setError(getErrorMessage(err))
+      setIsModalOpen(false)
+    } finally {
+      setIsDeleting(false)
+    }
   }
 
   return (
     <>
       <button
+        type="button"
         onClick={() => setIsModalOpen(true)}
         disabled={isDeleting}
         className="flex-shrink-0 bg-white border border-red-200 text-red-600 px-3.5 py-1.5 rounded-lg text-xs font-semibold hover:bg-red-50 hover:border-red-300 disabled:opacity-50 transition-colors cursor-pointer shadow-2xs"
@@ -40,8 +47,8 @@ export function DeleteAdminDocumentButton({ id, fileUrl }: { id: string, fileUrl
       </button>
 
       {error && (
-        <span className="text-xs text-red-600 ml-2" title={error}>
-          ⚠️ Error deleting
+        <span className="text-xs text-red-600 ml-2" role="alert">
+          ⚠️ {error}
         </span>
       )}
 

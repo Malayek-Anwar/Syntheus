@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react'
 import { parsePDF, publishDocument, type ExtractedData, type DocType, type TimelineMilestone } from '@/app/admin/actions'
 import { useRouter } from 'next/navigation'
+import { getErrorMessage } from '@/utils/errors'
 
 const DOC_TYPE_OPTIONS: { type: DocType; label: string; icon: string }[] = [
   { type: 'fee_notice', label: 'Fee & Dues', icon: '💳' },
@@ -50,25 +51,28 @@ export function AdminUploadForm() {
     setSuccessMessage(null)
     setLoadingStep('Uploading & running AI extraction...')
 
-    const formData = new FormData()
-    formData.append('file', file)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
 
-    const result = await parsePDF(formData)
-    
-    if (!result.success || !result.data) {
-      setError(result.error || 'Failed to parse PDF document')
+      const result = await parsePDF(formData)
+      
+      if (!result.success || !result.data) {
+        setError(result.error || 'Failed to parse PDF document')
+        return
+      }
+
+      setExtractedData(result.data)
+      setSelectedDocType(result.data.doc_type)
+      setSelectedDepts(result.data.target_departments.length > 0 ? result.data.target_departments : ['All'])
+      setSelectedSems(result.data.target_semesters)
+      setTimelineItems(result.data.timeline || [])
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
       setIsLoading(false)
       setLoadingStep('')
-      return
     }
-
-    setExtractedData(result.data)
-    setSelectedDocType(result.data.doc_type)
-    setSelectedDepts(result.data.target_departments.length > 0 ? result.data.target_departments : ['All'])
-    setSelectedSems(result.data.target_semesters)
-    setTimelineItems(result.data.timeline || [])
-    setIsLoading(false)
-    setLoadingStep('')
   }
 
   const toggleDept = (dept: string) => {
@@ -99,59 +103,64 @@ export function AdminUploadForm() {
 
     setIsLoading(true)
     setError(null)
-    
-    const formElement = e.currentTarget.tagName === 'FORM' ? e.currentTarget as HTMLFormElement : (e.target as HTMLElement).closest('form') as HTMLFormElement
-    const formData = new FormData(formElement)
 
-    const keyPointsRaw = formData.get('key_points') as string
-    const key_points = keyPointsRaw
-      ? keyPointsRaw.split('\n').map(line => line.replace(/^[•\-\*]\s*/, '').trim()).filter(Boolean)
-      : extractedData.key_points
+    try {
+      const formElement = e.currentTarget.tagName === 'FORM' ? e.currentTarget as HTMLFormElement : (e.target as HTMLElement).closest('form') as HTMLFormElement
+      const formData = new FormData(formElement)
 
-    const actionItemsRaw = formData.get('action_items') as string
-    const action_items = actionItemsRaw
-      ? actionItemsRaw.split('\n').map(line => line.replace(/^(\d+\.|\-|\*|\[\s*\])\s*/, '').trim()).filter(Boolean)
-      : extractedData.action_items
+      const keyPointsRaw = formData.get('key_points') as string
+      const key_points = keyPointsRaw
+        ? keyPointsRaw.split('\n').map(line => line.replace(/^[•\-\*]\s*/, '').trim()).filter(Boolean)
+        : extractedData.key_points
 
-    const finalData: ExtractedData = {
-      ...extractedData,
-      title: (formData.get('title') as string) || extractedData.title,
-      doc_type: selectedDocType,
-      category: (formData.get('category') as string) || extractedData.category,
-      audience: selectedDepts.join(', '),
-      target_departments: selectedDepts,
-      target_semesters: selectedSems,
-      summary: (formData.get('summary') as string) || extractedData.summary,
-      key_points,
-      action_items,
-      timeline: timelineItems,
-      dates: (formData.get('dates') as string) || extractedData.dates,
-      deadline: (formData.get('deadline') as string) || extractedData.deadline || null,
-      priority: (formData.get('priority') as string) || extractedData.priority,
-      subject_code: (formData.get('subject_code') as string) || null,
-    }
+      const actionItemsRaw = formData.get('action_items') as string
+      const action_items = actionItemsRaw
+        ? actionItemsRaw.split('\n').map(line => line.replace(/^(\d+\.|\-|\*|\[\s*\])\s*/, '').trim()).filter(Boolean)
+        : extractedData.action_items
 
-    const result = await publishDocument(finalData, isDraft)
-    
-    if (!result.success) {
-      setError(result.error || 'Failed to save document')
+      const finalData: ExtractedData = {
+        ...extractedData,
+        title: (formData.get('title') as string) || extractedData.title,
+        doc_type: selectedDocType,
+        category: (formData.get('category') as string) || extractedData.category,
+        audience: selectedDepts.join(', '),
+        target_departments: selectedDepts,
+        target_semesters: selectedSems,
+        summary: (formData.get('summary') as string) || extractedData.summary,
+        key_points,
+        action_items,
+        timeline: timelineItems,
+        dates: (formData.get('dates') as string) || extractedData.dates,
+        starts_at: (formData.get('starts_at') as string) || extractedData.starts_at || null,
+        deadline: (formData.get('deadline') as string) || extractedData.deadline || null,
+        priority: (formData.get('priority') as string) || extractedData.priority,
+        subject_code: (formData.get('subject_code') as string) || extractedData.subject_code || null,
+      }
+
+      const result = await publishDocument(finalData, isDraft)
+      
+      if (!result.success) {
+        setError(result.error || 'Failed to save document')
+        return
+      }
+
+      setSuccessMessage(
+        isDraft 
+          ? 'Document saved as draft (hidden from students)!' 
+          : 'Document published, summarized, and vectorized successfully!'
+      )
+      setExtractedData(null)
+      setFile(null)
+      router.refresh()
+
+      setTimeout(() => {
+        setSuccessMessage(null)
+      }, 5000)
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
       setIsLoading(false)
-      return
     }
-
-    setSuccessMessage(
-      isDraft 
-        ? 'Document saved as draft (hidden from students)!' 
-        : 'Document published, summarized, and vectorized successfully!'
-    )
-    setExtractedData(null)
-    setFile(null)
-    setIsLoading(false)
-    router.refresh()
-
-    setTimeout(() => {
-      setSuccessMessage(null)
-    }, 5000)
   }
 
   // =========================================================================
@@ -163,7 +172,7 @@ export function AdminUploadForm() {
         {/* Minimal Header */}
         <div className="flex items-center justify-between pb-3 border-b border-gray-100">
           <div className="flex items-center gap-2">
-            <span className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center font-bold text-xs">
+            <span className="w-7 h-7 rounded-lg bg-[#edf6f3] text-[#176b61] border border-[#cce5df] flex items-center justify-center font-bold text-xs">
               AI
             </span>
             <div>
@@ -177,7 +186,7 @@ export function AdminUploadForm() {
               href={extractedData.fileUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs text-blue-600 hover:text-blue-800 font-semibold inline-flex items-center gap-1"
+              className="text-xs text-[#176b61] hover:text-[#12564f] font-semibold inline-flex items-center gap-1"
             >
               View PDF ↗
             </a>
@@ -195,7 +204,7 @@ export function AdminUploadForm() {
                 name="title"
                 defaultValue={extractedData.title}
                 required
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs sm:text-sm text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs sm:text-sm text-gray-900 focus:border-[#176b61] focus:ring-1 focus:ring-[#176b61] outline-none"
               />
             </div>
 
@@ -204,7 +213,7 @@ export function AdminUploadForm() {
               <select
                 value={selectedDocType}
                 onChange={(e) => setSelectedDocType(e.target.value as DocType)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs sm:text-sm text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none bg-white"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs sm:text-sm text-gray-900 focus:border-[#176b61] focus:ring-1 focus:ring-[#176b61] outline-none bg-white"
               >
                 {DOC_TYPE_OPTIONS.map((opt) => (
                   <option key={opt.type} value={opt.type}>
@@ -220,21 +229,21 @@ export function AdminUploadForm() {
                 type="text"
                 name="category"
                 defaultValue={extractedData.category}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs sm:text-sm text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs sm:text-sm text-gray-900 focus:border-[#176b61] focus:ring-1 focus:ring-[#176b61] outline-none"
               />
             </div>
           </div>
 
           {/* Row 2: AI Executive Summary */}
           <div>
-            <label className="block text-xs font-semibold text-blue-950 mb-1">
+            <label className="block text-xs font-semibold text-[#244b46] mb-1">
               ✨ AI Executive Summary
             </label>
             <textarea
               name="summary"
               rows={2}
               defaultValue={extractedData.summary}
-              className="w-full rounded-lg border border-blue-200 bg-blue-50/20 px-3 py-2 text-xs sm:text-sm text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none leading-relaxed"
+              className="w-full rounded-lg border border-[#cce5df] bg-[#f4faf8] px-3 py-2 text-xs sm:text-sm text-gray-900 focus:border-[#176b61] focus:ring-1 focus:ring-[#176b61] outline-none leading-relaxed"
               placeholder="Concise summary for student overview..."
             />
           </div>
@@ -249,7 +258,7 @@ export function AdminUploadForm() {
                 name="key_points"
                 rows={3}
                 defaultValue={extractedData.key_points.map(p => `• ${p}`).join('\n')}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none leading-relaxed"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-[#176b61] focus:ring-1 focus:ring-[#176b61] outline-none leading-relaxed"
               />
             </div>
 
@@ -261,7 +270,7 @@ export function AdminUploadForm() {
                 name="action_items"
                 rows={3}
                 defaultValue={extractedData.action_items.map((a, i) => `${i + 1}. ${a}`).join('\n')}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none leading-relaxed"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-[#176b61] focus:ring-1 focus:ring-[#176b61] outline-none leading-relaxed"
               />
             </div>
           </div>
@@ -280,7 +289,7 @@ export function AdminUploadForm() {
                     { label: 'Stage', date: new Date().toISOString().split('T')[0], fee_penalty: null, description: null }
                   ])
                 }}
-                className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 cursor-pointer"
+                className="text-[11px] font-semibold text-[#176b61] hover:text-[#12564f] cursor-pointer"
               >
                 + Add Stage
               </button>
@@ -365,7 +374,7 @@ export function AdminUploadForm() {
                     onClick={() => toggleDept(dept)}
                     className={`px-2.5 py-0.5 text-xs font-semibold rounded-md border transition-colors cursor-pointer ${
                       selectedDepts.includes(dept) && !selectedDepts.includes('All')
-                        ? 'bg-blue-600 text-white border-blue-600'
+                        ? 'bg-[#176b61] text-white border-[#176b61]'
                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                     }`}
                   >
@@ -386,7 +395,7 @@ export function AdminUploadForm() {
                     onClick={() => toggleSem(sem)}
                     className={`w-8 h-7 text-xs font-semibold rounded-md border transition-colors cursor-pointer flex items-center justify-center ${
                       selectedSems.includes(sem)
-                        ? 'bg-blue-600 text-white border-blue-600'
+                        ? 'bg-[#176b61] text-white border-[#176b61]'
                         : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
                     }`}
                   >
@@ -397,15 +406,24 @@ export function AdminUploadForm() {
             </div>
           </div>
 
-          {/* Row 6: Primary Deadline & Priority */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Row 6: Procedure dates & priority */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">Procedure Opens</label>
+              <input
+                type="date"
+                name="starts_at"
+                defaultValue={extractedData.starts_at || ''}
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-[#176b61] focus:ring-1 focus:ring-[#176b61] outline-none"
+              />
+            </div>
             <div>
               <label className="block text-xs font-semibold text-gray-700 mb-1">Primary Deadline</label>
               <input
                 type="date"
                 name="deadline"
                 defaultValue={extractedData.deadline || ''}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-[#176b61] focus:ring-1 focus:ring-[#176b61] outline-none"
               />
             </div>
 
@@ -414,7 +432,7 @@ export function AdminUploadForm() {
               <select
                 name="priority"
                 defaultValue={extractedData.priority}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none bg-white"
+                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-xs text-gray-900 focus:border-[#176b61] focus:ring-1 focus:ring-[#176b61] outline-none bg-white"
               >
                 <option value="High">🔴 High Priority</option>
                 <option value="Medium">🟡 Medium</option>
@@ -461,7 +479,7 @@ export function AdminUploadForm() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="px-4 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs cursor-pointer transition-all disabled:opacity-50"
+                className="px-4 py-1.5 text-xs font-bold text-white bg-[#176b61] hover:bg-[#12564f] rounded-full shadow-xs cursor-pointer transition-all disabled:opacity-50"
               >
                 {isLoading ? 'Publishing...' : 'Publish to Students →'}
               </button>
@@ -486,8 +504,8 @@ export function AdminUploadForm() {
 
       {isLoading ? (
         <div className="py-8 text-center space-y-3 animate-in fade-in duration-200">
-          <span className="inline-block w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs text-blue-600 font-medium">{loadingStep}</p>
+          <span className="inline-block w-8 h-8 border-2 border-[#176b61] border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs text-[#176b61] font-medium">{loadingStep}</p>
         </div>
       ) : (
         <form onSubmit={handleUpload} className="space-y-4">
@@ -507,9 +525,9 @@ export function AdminUploadForm() {
             onClick={() => fileInputRef.current?.click()}
             className={`border border-dashed rounded-xl p-6 sm:p-8 text-center cursor-pointer transition-all ${
               isDragOver
-                ? 'border-blue-500 bg-blue-50/50'
+                ? 'border-[#72b5aa] bg-[#edf6f3]'
                 : file
-                ? 'border-blue-400 bg-blue-50/20'
+                ? 'border-[#a9d2c9] bg-[#f4faf8]'
                 : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50/50'
             }`}
           >
@@ -522,7 +540,7 @@ export function AdminUploadForm() {
             />
 
             <div className="flex flex-col items-center justify-center space-y-2">
-              <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 border border-blue-200 flex items-center justify-center text-lg">
+              <div className="w-10 h-10 rounded-lg bg-[#edf6f3] text-[#176b61] border border-[#cce5df] flex items-center justify-center text-lg">
                 📄
               </div>
               <div>
@@ -554,7 +572,7 @@ export function AdminUploadForm() {
             <button
               type="submit"
               disabled={!file || isLoading}
-              className="px-5 py-2 rounded-lg font-semibold text-xs text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 cursor-pointer transition-all shadow-xs flex items-center gap-1.5"
+              className="px-5 py-2 rounded-full font-semibold text-xs text-white bg-[#176b61] hover:bg-[#12564f] disabled:opacity-50 cursor-pointer transition-all shadow-xs flex items-center gap-1.5"
             >
               <span>⚡ Analyze & Extract</span>
             </button>

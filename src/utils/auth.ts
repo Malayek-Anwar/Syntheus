@@ -25,7 +25,7 @@ export async function verifyAdminAction(): Promise<AdminAuthResult> {
     }
   }
 
-  const role = user.user_metadata?.role
+  const role = user.app_metadata?.role || user.user_metadata?.role
 
   if (role !== 'admin') {
     return {

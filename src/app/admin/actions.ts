@@ -1,6 +1,5 @@
 'use server'
 
-import { createClient } from '@/utils/supabase/server'
 import { verifyAdminAction } from '@/utils/auth'
 import { normalizeAudience } from '@/utils/audience'
 import { getErrorMessage } from '@/utils/errors'
@@ -8,6 +7,8 @@ import { extractPdfText } from '@/utils/pdf'
 import OpenAI from 'openai'
 import { v4 as uuidv4 } from 'uuid'
 import { generateEmbedding } from '@/utils/embeddings'
+import { safeIsoDate } from '@/utils/deadlines'
+import { extractStoragePath } from '@/utils/storage'
 
 export type DocType = 
   | 'fee_notice' 
@@ -36,6 +37,7 @@ export type ExtractedData = {
   action_items: string[]
   timeline: TimelineMilestone[]
   dates: string
+  starts_at?: string | null
   deadline: string | null
   priority: string
   subject_code?: string | null
@@ -114,10 +116,11 @@ Rules for Extraction:
    - If there is a single deadline or event date, extract it as a 1-element array.
    - If no dates/deadlines exist, return [].
 6. 'deadline': The primary/earliest urgent deadline as 'YYYY-MM-DD' (or null if no deadlines).
-7. 'department': Target departments: 'CSE', 'ECE', 'ME', 'CE', 'IT', or 'All'.
-8. 'semester': Target semesters: 'All', 'Odd', 'Even', or specific numbers (e.g. '3', '5', '1, 2').
-9. 'subject_code': Extract subject code or course name if this document represents class notes / syllabus (e.g. "CS301", "Digital Electronics") or null.
-10. 'priority': 'HIGH' if it involves impending deadlines, fines, or exam schedules; 'MEDIUM' for general academic updates; 'LOW' for routine circulars.
+7. 'starts_at': If a procedure has a distinct opening/start date, extract it as 'YYYY-MM-DD'; otherwise null.
+8. 'department': Target departments: 'CSE', 'ECE', 'ME', 'CE', 'IT', or 'All'.
+9. 'semester': Target semesters: 'All', 'Odd', 'Even', or specific numbers (e.g. '3', '5', '1, 2').
+10. 'subject_code': Extract subject code or course name if this document represents class notes / syllabus (e.g. "CS301", "Digital Electronics") or null.
+11. 'priority': 'HIGH' if it involves impending deadlines, fines, or exam schedules; 'MEDIUM' for general academic updates; 'LOW' for routine circulars.
 
 Schema:
 {
@@ -139,6 +142,7 @@ Schema:
     }
   ],
   "dates": "string or null",
+  "starts_at": "YYYY-MM-DD or null",
   "deadline": "YYYY-MM-DD or null",
   "priority": "HIGH | MEDIUM | LOW",
   "subject_code": "string or null"
@@ -193,6 +197,7 @@ Schema:
         action_items: Array.isArray(parsedJson.action_items) ? parsedJson.action_items : [],
         timeline,
         dates: parsedJson.dates || '',
+        starts_at: parsedJson.starts_at || null,
         deadline,
         priority: parsedJson.priority || 'Medium',
         subject_code: parsedJson.subject_code || null,
@@ -251,7 +256,8 @@ export async function publishDocument(data: ExtractedData, isDraft: boolean = fa
       timeline: data.timeline || [],
       subject_code: data.subject_code || null,
       dates: data.dates,
-      deadline: data.deadline ? new Date(data.deadline).toISOString() : null,
+      starts_at: safeIsoDate(data.starts_at),
+      deadline: safeIsoDate(data.deadline),
       priority: data.priority,
       file_url: data.fileUrl,
       is_published: isPublished,
@@ -277,7 +283,8 @@ export async function publishDocument(data: ExtractedData, isDraft: boolean = fa
         target_departments,
         target_semesters,
         dates: data.dates,
-        deadline: data.deadline ? new Date(data.deadline).toISOString() : null,
+        starts_at: safeIsoDate(data.starts_at),
+        deadline: safeIsoDate(data.deadline),
         priority: data.priority,
         file_url: data.fileUrl,
         is_published: isPublished,
@@ -345,6 +352,7 @@ export type UpdateDocumentPayload = {
   action_items: string[]
   timeline: TimelineMilestone[]
   dates: string
+  starts_at?: string | null
   deadline: string | null
   priority: string
   subject_code?: string | null
@@ -371,7 +379,7 @@ export async function updateDocument(payload: UpdateDocumentPayload) {
       title: payload.title,
       doc_type: payload.doc_type || 'general_notice',
       category: payload.category,
-      audience: target_departments.join(', '),
+      audience: payload.audience || target_departments.join(', '),
       target_departments,
       target_semesters,
       summary: payload.summary || '',
@@ -380,7 +388,8 @@ export async function updateDocument(payload: UpdateDocumentPayload) {
       timeline: payload.timeline || [],
       subject_code: payload.subject_code || null,
       dates: payload.dates,
-      deadline: payload.deadline ? new Date(payload.deadline).toISOString() : null,
+      starts_at: safeIsoDate(payload.starts_at),
+      deadline: safeIsoDate(payload.deadline),
       priority: payload.priority,
     }
 
@@ -405,7 +414,7 @@ export async function updateDocument(payload: UpdateDocumentPayload) {
         title: payload.title,
         doc_type: payload.doc_type || 'general_notice',
         category: payload.category,
-        audience: target_departments.join(', '),
+        audience: payload.audience || target_departments.join(', '),
         target_departments,
         target_semesters,
         summary: payload.summary || '',
@@ -414,7 +423,8 @@ export async function updateDocument(payload: UpdateDocumentPayload) {
         timeline: payload.timeline || [],
         subject_code: payload.subject_code || null,
         dates: payload.dates,
-        deadline: payload.deadline ? new Date(payload.deadline).toISOString() : null,
+        starts_at: safeIsoDate(payload.starts_at),
+        deadline: safeIsoDate(payload.deadline),
         priority: payload.priority,
       }
       if (typeof payload.is_published === 'boolean') {
@@ -487,9 +497,7 @@ export async function deletePublishedDocument(id: string, fileUrl: string) {
     const supabase = auth.supabase
 
     // 1. Delete from Storage
-    // Extract filename from URL
-    const urlParts = fileUrl.split('/')
-    const fileName = urlParts.pop()
+    const fileName = extractStoragePath(fileUrl, 'documents')
     
     if (fileName) {
       await supabase.storage
