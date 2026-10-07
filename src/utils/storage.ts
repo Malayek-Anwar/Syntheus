@@ -1,14 +1,18 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
+
+export const INSTITUTIONAL_BUCKET = 'institutional-documents'
+export const PERSONAL_BUCKET = 'personal-documents'
+
 /**
- * Extracts the storage object path from a Supabase storage URL or direct path.
- * Strips query strings, hashes, and handles URL decoding safely.
+ * Extracts storage path from URL or filename.
  */
-export function extractStoragePath(fileUrlOrPath: string, bucketName: string = 'documents'): string {
+export function extractStoragePath(fileUrlOrPath: string, bucketName: string = INSTITUTIONAL_BUCKET): string {
   if (!fileUrlOrPath) return ''
 
   // 1. Strip query parameters and fragment identifier
   const cleanUrl = fileUrlOrPath.split('?')[0].split('#')[0]
 
-  // 2. Match standard Supabase storage bucket URLs (e.g., .../storage/v1/object/public/{bucket}/{path})
+  // 2. Match standard Supabase storage bucket URLs (e.g., .../storage/v1/object/.../{bucket}/{path})
   const bucketPattern = new RegExp(`\\/${bucketName}\\/([^?#]+)`)
   const match = cleanUrl.match(bucketPattern)
   if (match?.[1]) {
@@ -26,9 +30,48 @@ export function extractStoragePath(fileUrlOrPath: string, bucketName: string = '
   return lastSegment ? decodeURIComponent(lastSegment) : ''
 }
 
-/**
- * Extracts the storage object path for the personal_documents bucket.
- */
 export function extractPersonalStoragePath(fileUrlOrPath: string): string {
-  return extractStoragePath(fileUrlOrPath, 'personal_documents')
+  return extractStoragePath(fileUrlOrPath, PERSONAL_BUCKET)
+}
+
+/**
+ * Creates a short-lived signed URL for an institutional document.
+ */
+export async function getInstitutionalSignedUrl(
+  supabase: SupabaseClient,
+  storagePath: string,
+  expiresInSeconds: number = 3600
+): Promise<string | null> {
+  if (!storagePath) return null
+  const { data, error } = await supabase.storage
+    .from(INSTITUTIONAL_BUCKET)
+    .createSignedUrl(storagePath, expiresInSeconds)
+
+  if (error || !data?.signedUrl) {
+    console.error('Failed to create institutional signed URL:', error)
+    return null
+  }
+
+  return data.signedUrl
+}
+
+/**
+ * Creates a short-lived signed URL for a personal student document.
+ */
+export async function getPersonalSignedUrl(
+  supabase: SupabaseClient,
+  storagePath: string,
+  expiresInSeconds: number = 3600
+): Promise<string | null> {
+  if (!storagePath) return null
+  const { data, error } = await supabase.storage
+    .from(PERSONAL_BUCKET)
+    .createSignedUrl(storagePath, expiresInSeconds)
+
+  if (error || !data?.signedUrl) {
+    console.error('Failed to create personal signed URL:', error)
+    return null
+  }
+
+  return data.signedUrl
 }

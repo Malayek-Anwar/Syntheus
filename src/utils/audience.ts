@@ -25,149 +25,198 @@ const DEPT_ALIASES: Record<string, string> = {
   'it': 'IT',
 }
 
-export type NormalizedAudience = {
-  target_departments: string[]
-  target_semesters: number[]
+export type StudentProfileTarget = {
+  department: string | null
+  semester: number | null
+  section: string | null
 }
 
-/**
- * Normalizes audience keywords extracted by LLM into explicit array filters.
- *
- * Rules:
- * - If extractedDept is 'All' -> returns all college departments: ['CSE', 'ECE', 'ME', 'CE', 'IT']
- * - Otherwise -> returns [extractedDept] (or normalized department array)
- *
- * - If extractedSem is 'All' -> returns [1, 2, 3, 4, 5, 6, 7, 8]
- * - If extractedSem is 'Odd' -> returns [1, 3, 5, 7]
- * - If extractedSem is 'Even' -> returns [2, 4, 6, 8]
- * - Otherwise -> returns explicit integer semester array
- */
+export type DocumentTarget = {
+  target_departments: string[] | null
+  target_semesters: number[] | null
+  target_sections: string[] | null
+}
+
+export function normalizeSection(section?: string | null): string | null {
+  if (!section) return null
+  const trimmed = section.trim().toUpperCase()
+  return trimmed.length > 0 ? trimmed : null
+}
+
 export function normalizeAudience(
   extractedDept?: string | string[] | null,
-  extractedSem?: string | number | (string | number)[] | null
-): NormalizedAudience {
-  // 1. Normalize Departments
-  let target_departments: string[] = []
+  extractedSem?: string | number | (string | number)[] | null,
+  extractedSec?: string | string[] | null
+): {
+  target_departments: string[] | null
+  target_semesters: number[] | null
+  target_sections: string[] | null
+} {
+  // 1. Normalize Departments: NULL means All
+  let target_departments: string[] | null = null
 
-  if (!extractedDept) {
-    target_departments = [...ALL_DEPARTMENTS]
-  } else if (Array.isArray(extractedDept)) {
-    const isAll = extractedDept.some(d => String(d).trim().toLowerCase() === 'all')
-    if (isAll) {
-      target_departments = [...ALL_DEPARTMENTS]
+  if (extractedDept) {
+    if (Array.isArray(extractedDept)) {
+      const isAll = extractedDept.some(d => String(d).trim().toLowerCase() === 'all')
+      if (!isAll) {
+        const depts = extractedDept
+          .map(d => {
+            const key = String(d).trim().toLowerCase()
+            return DEPT_ALIASES[key] || String(d).trim().toUpperCase()
+          })
+          .filter(Boolean)
+        if (depts.length > 0) {
+          target_departments = Array.from(new Set(depts))
+        }
+      }
     } else {
-      const depts = extractedDept
-        .map(d => {
-          const key = String(d).trim().toLowerCase()
-          return DEPT_ALIASES[key] || String(d).trim().toUpperCase()
-        })
-        .filter(Boolean)
-      target_departments = depts.length > 0 ? Array.from(new Set(depts)) : [...ALL_DEPARTMENTS]
-    }
-  } else {
-    const deptStr = String(extractedDept).trim()
-    if (deptStr.toLowerCase() === 'all') {
-      target_departments = [...ALL_DEPARTMENTS]
-    } else if (deptStr.includes(',')) {
-      const depts = deptStr
-        .split(',')
-        .map(d => {
-          const key = d.trim().toLowerCase()
-          return DEPT_ALIASES[key] || d.trim().toUpperCase()
-        })
-        .filter(Boolean)
-      target_departments = depts.length > 0 ? Array.from(new Set(depts)) : [...ALL_DEPARTMENTS]
-    } else {
-      const normalized = DEPT_ALIASES[deptStr.toLowerCase()] || deptStr.toUpperCase()
-      target_departments = [normalized]
-    }
-  }
-
-  // 2. Normalize Semesters
-  let target_semesters: number[] = []
-
-  if (extractedSem === undefined || extractedSem === null || extractedSem === '') {
-    target_semesters = [...ALL_SEMESTERS]
-  } else if (Array.isArray(extractedSem)) {
-    const semStrings = extractedSem.map(s => String(s).trim().toLowerCase())
-    if (semStrings.includes('all')) {
-      target_semesters = [...ALL_SEMESTERS]
-    } else if (semStrings.includes('odd')) {
-      target_semesters = [...ODD_SEMESTERS]
-    } else if (semStrings.includes('even')) {
-      target_semesters = [...EVEN_SEMESTERS]
-    } else {
-      const nums = extractedSem
-        .map(s => parseInt(String(s).replace(/\D/g, ''), 10))
-        .filter(n => !isNaN(n) && n >= 1 && n <= 8)
-      target_semesters = nums.length > 0 ? Array.from(new Set(nums)).sort((a, b) => a - b) : [...ALL_SEMESTERS]
-    }
-  } else {
-    const semStr = String(extractedSem).trim().toLowerCase()
-    if (semStr === 'all') {
-      target_semesters = [...ALL_SEMESTERS]
-    } else if (semStr === 'odd') {
-      target_semesters = [...ODD_SEMESTERS]
-    } else if (semStr === 'even') {
-      target_semesters = [...EVEN_SEMESTERS]
-    } else if (semStr.includes(',')) {
-      const nums = semStr
-        .split(',')
-        .map(s => parseInt(s.replace(/\D/g, ''), 10))
-        .filter(n => !isNaN(n) && n >= 1 && n <= 8)
-      target_semesters = nums.length > 0 ? Array.from(new Set(nums)).sort((a, b) => a - b) : [...ALL_SEMESTERS]
-    } else {
-      const num = parseInt(semStr.replace(/\D/g, ''), 10)
-      if (!isNaN(num) && num >= 1 && num <= 8) {
-        target_semesters = [num]
-      } else {
-        target_semesters = [...ALL_SEMESTERS]
+      const deptStr = String(extractedDept).trim()
+      if (deptStr.toLowerCase() !== 'all') {
+        const depts = deptStr
+          .split(',')
+          .map(d => {
+            const key = d.trim().toLowerCase()
+            return DEPT_ALIASES[key] || d.trim().toUpperCase()
+          })
+          .filter(Boolean)
+        if (depts.length > 0) {
+          target_departments = Array.from(new Set(depts))
+        }
       }
     }
   }
 
-  return { target_departments, target_semesters }
+  // 2. Normalize Semesters: NULL means All
+  let target_semesters: number[] | null = null
+
+  if (extractedSem !== undefined && extractedSem !== null && extractedSem !== '') {
+    if (Array.isArray(extractedSem)) {
+      const semStrings = extractedSem.map(s => String(s).trim().toLowerCase())
+      if (semStrings.includes('odd')) {
+        target_semesters = [...ODD_SEMESTERS]
+      } else if (semStrings.includes('even')) {
+        target_semesters = [...EVEN_SEMESTERS]
+      } else if (!semStrings.includes('all')) {
+        const nums = extractedSem
+          .map(s => parseInt(String(s).replace(/\D/g, ''), 10))
+          .filter(n => !isNaN(n) && n >= 1 && n <= 8)
+        if (nums.length > 0) {
+          target_semesters = Array.from(new Set(nums)).sort((a, b) => a - b)
+        }
+      }
+    } else {
+      const semStr = String(extractedSem).trim().toLowerCase()
+      if (semStr === 'odd') {
+        target_semesters = [...ODD_SEMESTERS]
+      } else if (semStr === 'even') {
+        target_semesters = [...EVEN_SEMESTERS]
+      } else if (semStr !== 'all') {
+        const nums = semStr
+          .split(',')
+          .map(s => parseInt(s.replace(/\D/g, ''), 10))
+          .filter(n => !isNaN(n) && n >= 1 && n <= 8)
+        if (nums.length > 0) {
+          target_semesters = Array.from(new Set(nums)).sort((a, b) => a - b)
+        }
+      }
+    }
+  }
+
+  // 3. Normalize Sections: NULL means All
+  let target_sections: string[] | null = null
+
+  if (extractedSec) {
+    if (Array.isArray(extractedSec)) {
+      const isAll = extractedSec.some(s => String(s).trim().toLowerCase() === 'all')
+      if (!isAll) {
+        const secs = extractedSec
+          .map(s => normalizeSection(s))
+          .filter((s): s is string => Boolean(s))
+        if (secs.length > 0) {
+          target_sections = Array.from(new Set(secs))
+        }
+      }
+    } else {
+      const secStr = String(extractedSec).trim()
+      if (secStr.toLowerCase() !== 'all') {
+        const secs = secStr
+          .split(',')
+          .map(s => normalizeSection(s))
+          .filter((s): s is string => Boolean(s))
+        if (secs.length > 0) {
+          target_sections = Array.from(new Set(secs))
+        }
+      }
+    }
+  }
+
+  return { target_departments, target_semesters, target_sections }
 }
 
 /**
- * Determines if a document is relevant/visible to a student in institutional notices.
- * 
- * Rules:
- * A student can see notices that are:
- * 1. Targeted for user's semester across ALL departments (department = all AND semester = student's semester)
- * 2. Targeted for ALL semesters of user's department (department = student's department AND semester = all)
- * 3. Targeted specifically for user's department AND semester (department = student's department AND semester = student's semester)
+ * Determines whether a document or event is visible to a student.
  *
- * A notice meant for a different department (e.g., ECE 3rd sem) is strictly HIDDEN from a CSE student.
+ * Locked V1 Targeting Rules:
+ * - Document NULL = All for that dimension.
+ * - Array values = OR alternatives within the dimension.
+ * - Dimensions combine with AND.
+ * - CRITICAL: Student NULL does NOT mean "all". A student's missing or NULL profile value
+ *   does not match a targeted document, preventing incomplete profiles from bypassing targeting.
+ * - The only exception is section when both student.section is NULL and document.target_sections is NULL
+ *   (i.e. no section distinction).
  */
-export function isAudienceVisibleToStudent(
-  doc: { target_departments?: string[] | null; target_semesters?: number[] | null },
-  studentDept: string,
-  studentSem: number
+export function isDocumentVisibleToStudent(
+  doc: DocumentTarget,
+  student: StudentProfileTarget
 ): boolean {
-  const depts: string[] = doc.target_departments || []
-  const sems: number[] = doc.target_semesters || []
+  // 1. Department dimension check
+  if (doc.target_departments !== null && doc.target_departments.length > 0) {
+    if (!student.department) return false
+    const matchDept = doc.target_departments.some(
+      d => d.toUpperCase() === student.department?.toUpperCase()
+    )
+    if (!matchDept) return false
+  }
 
-  // Check if notice is targeted at ALL departments
-  const isAllDepts = 
-    depts.length === 0 ||
-    depts.some(d => d.trim().toLowerCase() === 'all') ||
-    ALL_DEPARTMENTS.every(d => depts.includes(d))
+  // 2. Semester dimension check
+  if (doc.target_semesters !== null && doc.target_semesters.length > 0) {
+    if (student.semester === null || student.semester === undefined) return false
+    const matchSem = doc.target_semesters.includes(student.semester)
+    if (!matchSem) return false
+  }
 
-  // Check if notice is targeted at ALL semesters
-  const isAllSems = 
-    sems.length === 0 ||
-    ALL_SEMESTERS.every(s => sems.includes(s))
+  // 3. Section dimension check
+  if (doc.target_sections !== null && doc.target_sections.length > 0) {
+    if (!student.section) return false
+    const normalizedStudSec = student.section.toUpperCase()
+    const matchSec = doc.target_sections.some(s => s.toUpperCase() === normalizedStudSec)
+    if (!matchSec) return false
+  }
 
-  // 1. Universal campus-wide notice targeting all departments and all semesters
-  if (isAllDepts && isAllSems) return true
-
-  // 2. Department check: matches if all departments or specific department is included
-  const matchesDept = isAllDepts || depts.includes(studentDept)
-
-  // 3. Semester check: matches if all semesters or specific semester is included
-  const matchesSem = isAllSems || sems.includes(studentSem)
-
-  return matchesDept && matchesSem
+  return true
 }
 
+// Backward-compatible alias for existing components
+export function isAudienceVisibleToStudent(
+  doc: {
+    target_departments?: string[] | null
+    target_semesters?: number[] | null
+    target_sections?: string[] | null
+  },
+  studentDept: string | null,
+  studentSem: number | null,
+  studentSec: string | null = null
+): boolean {
+  return isDocumentVisibleToStudent(
+    {
+      target_departments: doc.target_departments ?? null,
+      target_semesters: doc.target_semesters ?? null,
+      target_sections: doc.target_sections ?? null,
+    },
+    {
+      department: studentDept,
+      semester: studentSem,
+      section: studentSec,
+    }
+  )
+}

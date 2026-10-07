@@ -48,10 +48,14 @@ export async function proxy(request: NextRequest) {
       return createRedirect('/login')
     }
 
-    const role = user.app_metadata?.role || user.user_metadata?.role
+    // Check public.admins domain table
+    const { data: adminRecord } = await supabase
+      .from('admins')
+      .select('id')
+      .eq('id', user.id)
+      .maybeSingle()
 
-    // If the authenticated user's role is not explicitly 'admin', redirect to unauthorized page
-    if (role !== 'admin') {
+    if (!adminRecord) {
       return createRedirect('/unauthorized')
     }
   }
@@ -60,6 +64,22 @@ export async function proxy(request: NextRequest) {
   if (pathname.startsWith('/student')) {
     if (!user) {
       return createRedirect('/login')
+    }
+
+    // Check public.students domain table
+    const { data: studentRecord } = await supabase
+      .from('students')
+      .select('id, account_status')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (studentRecord) {
+      if (studentRecord.account_status === 'pending') {
+        return createRedirect('/login?pending=true')
+      }
+      if (studentRecord.account_status === 'suspended') {
+        return createRedirect('/unauthorized')
+      }
     }
   }
 

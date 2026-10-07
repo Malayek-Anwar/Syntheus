@@ -7,49 +7,59 @@ import { extractPdfText } from '@/utils/pdf'
 import OpenAI from 'openai'
 import { v4 as uuidv4 } from 'uuid'
 import { generateEmbedding } from '@/utils/embeddings'
-import { safeIsoDate } from '@/utils/deadlines'
-import { extractStoragePath } from '@/utils/storage'
+import { INSTITUTIONAL_BUCKET, extractStoragePath, getInstitutionalSignedUrl } from '@/utils/storage'
+import type { DocumentCategory, AcademicEventType } from '@/types/database'
+import { ALL_DOCUMENT_CATEGORIES } from '@/utils/constants'
 
-export type DocType = 
-  | 'fee_notice' 
-  | 'academic_calendar' 
-  | 'holiday_notice' 
-  | 'academic_notes' 
-  | 'exam_circular' 
-  | 'general_notice'
-
-export type TimelineMilestone = {
-  label: string
-  date: string
-  fee_penalty?: string | null
+export type CandidateEvent = {
+  title: string
   description?: string | null
+  event_type: AcademicEventType
+  starts_at: string
+  ends_at?: string | null
+  all_day?: boolean
+}
+
+export type CandidateTimetableEntry = {
+  day_of_week: number
+  start_time: string
+  end_time: string
+  subject: string
+  room?: string | null
+  instructor?: string | null
+}
+
+export type CandidateTimetable = {
+  name: string
+  valid_from: string
+  valid_until?: string | null
+  entries: CandidateTimetableEntry[]
 }
 
 export type ExtractedData = {
   title: string
-  doc_type: DocType
-  category: string
-  audience: string
-  target_departments: string[]
-  target_semesters: number[]
-  summary: string
-  key_points: string[]
-  action_items: string[]
-  timeline: TimelineMilestone[]
-  dates: string
-  starts_at?: string | null
-  deadline: string | null
-  priority: string
-  subject_code?: string | null
+  description: string
+  category: DocumentCategory
+  tracks_completion: boolean
+  target_departments: string[] | null
+  target_semesters: number[] | null
+  target_sections: string[] | null
+  expires_at: string | null
+  candidate_events: CandidateEvent[]
+  candidate_timetable: CandidateTimetable | null
   rawText: string
-  fileUrl: string
+  storagePath: string
+  storageBucket: string
+  fileSize: number
+  signedUrl: string
 }
 
 export async function parsePDF(formData: FormData): Promise<{ success: boolean; data?: ExtractedData; error?: string }> {
+  let uploadedStoragePath: string | null = null
+
   try {
-    // 0. Strict server-side authorization check (403 Forbidden if not admin)
     const auth = await verifyAdminAction()
-    if (!auth.authorized) {
+    if (!auth.authorized || !auth.admin) {
       return { success: false, error: auth.error || '403 Forbidden: Admin privileges required' }
     }
 
@@ -60,14 +70,16 @@ export async function parsePDF(formData: FormData): Promise<{ success: boolean; 
 
     const supabase = auth.supabase
 
-    // 1. Upload to Supabase Storage
-    const fileExt = file.name.split('.').pop()
+    // 1. Upload to Supabase Storage (institutional-documents private bucket)
+    const fileExt = file.name.split('.').pop() || 'pdf'
     const fileName = `${uuidv4()}.${fileExt}`
-    
+    uploadedStoragePath = fileName
+
     const { error: uploadError } = await supabase
       .storage
-      .from('documents')
+      .from(INSTITUTIONAL_BUCKET)
       .upload(fileName, file, {
+        contentType: 'application/pdf',
         cacheControl: '3600',
         upsert: false
       })
@@ -76,15 +88,17 @@ export async function parsePDF(formData: FormData): Promise<{ success: boolean; 
       return { success: false, error: `Upload failed: ${uploadError.message}` }
     }
 
-    const { data: publicUrlData } = supabase.storage.from('documents').getPublicUrl(fileName)
-    const fileUrl = publicUrlData.publicUrl
+    const signedUrl = await getInstitutionalSignedUrl(supabase, fileName, 3600)
+    if (!signedUrl) {
+      throw new Error('Failed to generate preview signed URL for uploaded PDF')
+    }
 
     // 2. Parse PDF Text
     const arrayBuffer = await file.arrayBuffer()
     const buffer = Buffer.from(arrayBuffer)
     const rawText = await extractPdfText(buffer)
 
-    // 3. Extract comprehensive institutional metadata using Groq
+    // 3. Extract institutional intelligence using Groq
     const groq = new OpenAI({
       apiKey: process.env.GROQ_API_KEY,
       baseURL: 'https://api.groq.com/openai/v1',
@@ -93,59 +107,52 @@ export async function parsePDF(formData: FormData): Promise<{ success: boolean; 
     const completion = await groq.chat.completions.create({
       model: 'openai/gpt-oss-120b',
       messages: [
-        { 
-          role: 'system', 
-          content: `You are an elite data extraction and institutional intelligence AI for a university administration system.
-Analyze the provided university document text and extract rich, structured metadata into ONLY valid JSON.
+        {
+          role: 'system',
+          content: `You are an institutional intelligence data extraction AI for a university portal called Syntheus.
+Analyze the provided university document and extract structured metadata into valid JSON only.
 
-Document Types:
-- 'fee_notice': Fee payments, dues, registrations, examination fee circulars with payment windows or penalty fines.
-- 'academic_calendar': Semester start/end, teaching schedules, vacation dates, mid-term evaluation weeks.
-- 'holiday_notice': One-off holiday declarations, festival closures, compensatory working days.
-- 'academic_notes': Study material, lecture notes, syllabus modules, lab manuals.
-- 'exam_circular': Exam form filling, admit cards, hall tickets, seat matrices, practical/theory schedules.
-- 'general_notice': Administrative rules, hostel, election, sports, dress code, workshops, placement drives.
+Permitted Document Categories:
+- Institute: 'notice', 'circular', 'schedule', 'calendar', 'syllabus', 'form', 'admission', 'registration', 'scholarship', 'placement', 'fees'
+- Study: 'notes', 'reference_material', 'question_paper', 'question_bank', 'assignment'
 
-Rules for Extraction:
-1. 'doc_type': Pick strictly from ['fee_notice', 'academic_calendar', 'holiday_notice', 'academic_notes', 'exam_circular', 'general_notice'].
-2. 'summary': 2-3 concise sentences in plain English summarizing what this document announces and its direct impact on students.
-3. 'key_points': An array of 2-5 concise bullet points highlighting key rules, eligibility, or stipulations.
-4. 'action_items': An array of 1-4 direct steps students must take (e.g. "Download Form 4B", "Pay ₹1,200 via ERP portal", "Submit receipt at Counter 2"). If purely informative, leave empty array [].
-5. 'timeline': An array of milestone objects with { "label": string, "date": "YYYY-MM-DD", "fee_penalty": string | null, "description": string | null }.
-   - If there are multiple deadlines (e.g. free submission date, late fee date, final closure date), extract EACH stage into the timeline array!
-   - If there is a single deadline or event date, extract it as a 1-element array.
-   - If no dates/deadlines exist, return [].
-6. 'deadline': The primary/earliest urgent deadline as 'YYYY-MM-DD' (or null if no deadlines).
-7. 'starts_at': If a procedure has a distinct opening/start date, extract it as 'YYYY-MM-DD'; otherwise null.
-8. 'department': Target departments: 'CSE', 'ECE', 'ME', 'CE', 'IT', or 'All'.
-9. 'semester': Target semesters: 'All', 'Odd', 'Even', or specific numbers (e.g. '3', '5', '1, 2').
-10. 'subject_code': Extract subject code or course name if this document represents class notes / syllabus (e.g. "CS301", "Digital Electronics") or null.
-11. 'priority': 'HIGH' if it involves impending deadlines, fines, or exam schedules; 'MEDIUM' for general academic updates; 'LOW' for routine circulars.
+Permitted Academic Event Types:
+- 'exam', 'assignment_deadline', 'registration_deadline', 'admission_deadline', 'scholarship_deadline', 'semester_start', 'semester_end', 'holiday', 'class_event', 'other'
 
-Schema:
+Instructions:
+1. 'category': Must be strictly one of the 16 permitted categories above.
+2. 'description': Concise summary of the document (2-3 sentences).
+3. 'tracks_completion': true if this represents an actionable item (e.g. form filling, assignment, notice requiring action), else false.
+4. 'expires_at': ISO date string (YYYY-MM-DD or full timestamp) if notice has a deadline/cutoff after which it becomes historical, or null.
+5. 'target_departments': array of department codes ('CSE', 'ECE', 'ME', 'CE', 'IT') or null for all departments.
+6. 'target_semesters': array of integer semesters (1 to 8) or null for all semesters.
+7. 'target_sections': array of uppercase section letters (e.g. ['A', 'B']) or null for all sections.
+8. 'candidate_events': Extract any structured calendar events (e.g. exam dates, assignment deadlines, holiday dates) into an array of objects:
+   { "title": string, "event_type": AcademicEventType, "starts_at": "YYYY-MM-DDTHH:mm:ssZ" or "YYYY-MM-DD", "ends_at": string or null, "all_day": boolean }
+9. 'candidate_timetable': If this document is a class/lecture timetable, extract:
+   { "name": string, "valid_from": "YYYY-MM-DD", "valid_until": "YYYY-MM-DD" or null, "entries": [ { "day_of_week": 1-7 (Mon=1, Sun=7), "start_time": "HH:MM:SS", "end_time": "HH:MM:SS", "subject": string, "room": string or null, "instructor": string or null } ] }
+   If not a timetable, return null.
+
+JSON Schema:
 {
   "title": "string",
-  "doc_type": "fee_notice | academic_calendar | holiday_notice | academic_notes | exam_circular | general_notice",
-  "category": "string",
-  "audience": "string",
-  "department": "string",
-  "semester": "string",
-  "summary": "string",
-  "key_points": ["string"],
-  "action_items": ["string"],
-  "timeline": [
+  "category": "one of the 16 categories",
+  "description": "string",
+  "tracks_completion": true or false,
+  "expires_at": "YYYY-MM-DD or null",
+  "target_departments": ["CSE"] or null,
+  "target_semesters": [1, 2] or null,
+  "target_sections": ["A"] or null,
+  "candidate_events": [
     {
-      "label": "string",
-      "date": "YYYY-MM-DD",
-      "fee_penalty": "string or null",
-      "description": "string or null"
+      "title": "string",
+      "event_type": "exam | assignment_deadline | registration_deadline | admission_deadline | scholarship_deadline | semester_start | semester_end | holiday | class_event | other",
+      "starts_at": "YYYY-MM-DD",
+      "ends_at": "YYYY-MM-DD or null",
+      "all_day": true
     }
   ],
-  "dates": "string or null",
-  "starts_at": "YYYY-MM-DD or null",
-  "deadline": "YYYY-MM-DD or null",
-  "priority": "HIGH | MEDIUM | LOW",
-  "subject_code": "string or null"
+  "candidate_timetable": null
 }`
         },
         { role: 'user', content: rawText }
@@ -155,186 +162,242 @@ Schema:
 
     const extractedContent = completion.choices[0]?.message?.content
     if (!extractedContent) {
-      throw new Error("Failed to extract data from Groq")
+      throw new Error('Failed to extract metadata from AI model')
     }
 
-    const parsedJson = JSON.parse(extractedContent)
+    const parsed = JSON.parse(extractedContent)
 
-    // Normalize keywords into explicit target arrays
-    const { target_departments, target_semesters } = normalizeAudience(
-      parsedJson.department ?? parsedJson.target_departments,
-      parsedJson.semester ?? parsedJson.target_semesters
+    // Normalize category
+    const category: DocumentCategory = ALL_DOCUMENT_CATEGORIES.includes(parsed.category)
+      ? parsed.category
+      : 'notice'
+
+    const { target_departments, target_semesters, target_sections } = normalizeAudience(
+      parsed.target_departments,
+      parsed.target_semesters,
+      parsed.target_sections
     )
 
-    // Ensure timeline is a clean array
-    const rawTimeline = Array.isArray(parsedJson.timeline) ? parsedJson.timeline : []
-    const timeline: TimelineMilestone[] = rawTimeline
-      .filter((item: Record<string, unknown>) => item && typeof item.label === 'string' && typeof item.date === 'string')
-      .map((item: Record<string, unknown>) => ({
-        label: String(item.label),
-        date: String(item.date),
-        fee_penalty: item.fee_penalty ? String(item.fee_penalty) : null,
-        description: item.description ? String(item.description) : null,
-      }))
-
-    // Determine primary deadline (first from timeline if not explicit)
-    const deadline = parsedJson.deadline || timeline[0]?.date || null
-
-    const validDocTypes: DocType[] = ['fee_notice', 'academic_calendar', 'holiday_notice', 'academic_notes', 'exam_circular', 'general_notice']
-    const doc_type: DocType = validDocTypes.includes(parsedJson.doc_type) ? parsedJson.doc_type : 'general_notice'
+    const candidate_events: CandidateEvent[] = Array.isArray(parsed.candidate_events)
+      ? parsed.candidate_events.map((ev: Record<string, unknown>) => ({
+          title: String(ev.title || parsed.title),
+          description: ev.description ? String(ev.description) : null,
+          event_type: (ev.event_type as AcademicEventType) || 'other',
+          starts_at: String(ev.starts_at || new Date().toISOString()),
+          ends_at: ev.ends_at ? String(ev.ends_at) : null,
+          all_day: Boolean(ev.all_day ?? true),
+        }))
+      : []
 
     return {
       success: true,
       data: {
-        title: parsedJson.title || '',
-        doc_type,
-        category: parsedJson.category || (doc_type === 'fee_notice' ? 'Fee & Dues' : doc_type === 'holiday_notice' ? 'Holiday' : 'Notice'),
-        audience: parsedJson.audience || '',
+        title: parsed.title || file.name.replace(/\.pdf$/i, ''),
+        description: parsed.description || '',
+        category,
+        tracks_completion: Boolean(parsed.tracks_completion),
         target_departments,
         target_semesters,
-        summary: parsedJson.summary || '',
-        key_points: Array.isArray(parsedJson.key_points) ? parsedJson.key_points : [],
-        action_items: Array.isArray(parsedJson.action_items) ? parsedJson.action_items : [],
-        timeline,
-        dates: parsedJson.dates || '',
-        starts_at: parsedJson.starts_at || null,
-        deadline,
-        priority: parsedJson.priority || 'Medium',
-        subject_code: parsedJson.subject_code || null,
+        target_sections,
+        expires_at: parsed.expires_at || null,
+        candidate_events,
+        candidate_timetable: parsed.candidate_timetable || null,
         rawText,
-        fileUrl,
+        storagePath: fileName,
+        storageBucket: INSTITUTIONAL_BUCKET,
+        fileSize: file.size,
+        signedUrl,
       }
     }
-
   } catch (error: unknown) {
     console.error('Error in parsePDF:', error)
+    // Ingestion failure: clean up storage file if it was created
+    if (uploadedStoragePath) {
+      try {
+        const auth = await verifyAdminAction()
+        if (auth.supabase) {
+          await auth.supabase.storage.from(INSTITUTIONAL_BUCKET).remove([uploadedStoragePath])
+        }
+      } catch (cleanupErr) {
+        console.warn('Failed to cleanup temporary storage file:', cleanupErr)
+      }
+    }
     return { success: false, error: getErrorMessage(error) }
   }
 }
 
-// Helper to chunk text roughly by word count
-function chunkText(text: string, maxWords: number = 400): string[] {
+function chunkText(text: string, maxWords: number = 300): string[] {
   const words = text.split(/\s+/)
   const chunks: string[] = []
-  
   for (let i = 0; i < words.length; i += maxWords) {
     chunks.push(words.slice(i, i + maxWords).join(' '))
   }
   return chunks
 }
 
-export async function publishDocument(data: ExtractedData, isDraft: boolean = false) {
+export type PublishDocumentPayload = {
+  title: string
+  description: string
+  category: DocumentCategory
+  tracks_completion: boolean
+  target_departments: string[] | null
+  target_semesters: number[] | null
+  target_sections: string[] | null
+  expires_at?: string | null
+  storagePath: string
+  storageBucket: string
+  fileSize: number
+  rawText: string
+  candidate_events?: CandidateEvent[]
+  candidate_timetable?: CandidateTimetable | null
+  isDraft?: boolean
+}
+
+export async function publishDocument(payload: PublishDocumentPayload) {
+  let createdDocumentId: string | null = null
+
   try {
-    // 0. Strict server-side authorization check (403 Forbidden if not admin)
     const auth = await verifyAdminAction()
-    if (!auth.authorized) {
+    if (!auth.authorized || !auth.admin) {
       return { success: false, error: auth.error || '403 Forbidden: Admin privileges required' }
     }
 
     const supabase = auth.supabase
+    const status = payload.isDraft ? 'draft' : 'published'
+    const publishedAt = payload.isDraft ? null : new Date().toISOString()
 
-    // Explicitly normalize and expand audience arrays before database insertion
-    const { target_departments, target_semesters } = normalizeAudience(
-      data.target_departments,
-      data.target_semesters
-    )
-
-    const isPublished = !isDraft
-    const status = isDraft ? 'draft' : 'published'
-
-    // Construct full insert payload with new schema fields
-    const insertPayload: Record<string, unknown> = {
-      title: data.title,
-      doc_type: data.doc_type || 'general_notice',
-      category: data.category,
-      audience: data.audience,
-      target_departments,
-      target_semesters,
-      summary: data.summary || '',
-      key_points: data.key_points || [],
-      action_items: data.action_items || [],
-      timeline: data.timeline || [],
-      subject_code: data.subject_code || null,
-      dates: data.dates,
-      starts_at: safeIsoDate(data.starts_at),
-      deadline: safeIsoDate(data.deadline),
-      priority: data.priority,
-      file_url: data.fileUrl,
-      is_published: isPublished,
-      is_archived: false,
-      status: status,
-    }
-
-    // 1. Insert parent document with fallback support for base schema
-    let documentId: string | null = null
+    // 1. Insert into public.documents
     const { data: docData, error: docError } = await supabase
       .from('documents')
-      .insert(insertPayload)
+      .insert({
+        title: payload.title,
+        description: payload.description,
+        category: payload.category,
+        status,
+        tracks_completion: payload.tracks_completion,
+        target_departments: payload.target_departments,
+        target_semesters: payload.target_semesters,
+        target_sections: payload.target_sections,
+        expires_at: payload.expires_at || null,
+        storage_bucket: payload.storageBucket || INSTITUTIONAL_BUCKET,
+        storage_path: payload.storagePath,
+        mime_type: 'application/pdf',
+        file_size: payload.fileSize,
+        uploaded_by: auth.admin.id,
+        published_at: publishedAt,
+        updated_at: new Date().toISOString(),
+      })
       .select('id')
       .single()
 
-    if (docError) {
-      // If error was due to missing extended columns in database, fallback to base columns
-      console.warn('Full schema insert failed, retrying with core columns:', docError.message)
-      const basePayload = {
-        title: data.title,
-        category: data.category,
-        audience: data.audience,
-        target_departments,
-        target_semesters,
-        dates: data.dates,
-        starts_at: safeIsoDate(data.starts_at),
-        deadline: safeIsoDate(data.deadline),
-        priority: data.priority,
-        file_url: data.fileUrl,
-        is_published: isPublished,
+    if (docError || !docData) {
+      throw new Error(`Document insert failed: ${docError?.message}`)
+    }
+
+    createdDocumentId = docData.id
+
+    // 2. Chunk text and generate vector embeddings
+    const rawChunks = chunkText(payload.rawText, 300)
+    const header = `[Document: ${payload.title} | Category: ${payload.category} | Departments: ${payload.target_departments ? payload.target_departments.join(',') : 'All'} | Semesters: ${payload.target_semesters ? payload.target_semesters.join(',') : 'All'}]`
+
+    const enrichedChunks = rawChunks.map((chunk, idx) => ({
+      chunk_index: idx,
+      content: `${header}\n${chunk}`,
+      page_number: null,
+    }))
+
+    const chunkRows = []
+    for (const chunk of enrichedChunks) {
+      const embedding = await generateEmbedding(chunk.content)
+      chunkRows.push({
+        document_id: createdDocumentId,
+        chunk_index: chunk.chunk_index,
+        content: chunk.content,
+        embedding,
+        page_number: chunk.page_number,
+      })
+    }
+
+    if (chunkRows.length > 0) {
+      const { error: chunkError } = await supabase
+        .from('document_chunks')
+        .insert(chunkRows)
+
+      if (chunkError) {
+        throw new Error(`Failed to insert document chunks: ${chunkError.message}`)
       }
-      const { data: fallbackDoc, error: fallbackError } = await supabase
-        .from('documents')
-        .insert(basePayload)
+    }
+
+    // 3. Insert structured academic events if provided
+    if (payload.candidate_events && payload.candidate_events.length > 0) {
+      const eventRows = payload.candidate_events.map(ev => ({
+        source_document_id: createdDocumentId,
+        title: ev.title,
+        description: ev.description || null,
+        event_type: ev.event_type,
+        starts_at: ev.starts_at,
+        ends_at: ev.ends_at || null,
+        all_day: Boolean(ev.all_day),
+        target_departments: payload.target_departments,
+        target_semesters: payload.target_semesters,
+        target_sections: payload.target_sections,
+      }))
+
+      const { error: eventsError } = await supabase
+        .from('academic_events')
+        .insert(eventRows)
+
+      if (eventsError) {
+        console.warn('Warning: Failed to insert candidate academic events:', eventsError.message)
+      }
+    }
+
+    // 4. Insert structured timetable if provided
+    if (payload.candidate_timetable && payload.candidate_timetable.entries.length > 0) {
+      const { data: timetableData, error: timetableError } = await supabase
+        .from('timetables')
+        .insert({
+          source_document_id: createdDocumentId,
+          name: payload.candidate_timetable.name,
+          target_departments: payload.target_departments,
+          target_semesters: payload.target_semesters,
+          target_sections: payload.target_sections,
+          valid_from: payload.candidate_timetable.valid_from,
+          valid_until: payload.candidate_timetable.valid_until || null,
+          updated_at: new Date().toISOString(),
+        })
         .select('id')
         .single()
 
-      if (fallbackError) throw new Error(`Document insert failed: ${fallbackError.message}`)
-      documentId = fallbackDoc.id
-    } else {
-      documentId = docData.id
+      if (!timetableError && timetableData) {
+        const entryRows = payload.candidate_timetable.entries.map(entry => ({
+          timetable_id: timetableData.id,
+          day_of_week: entry.day_of_week,
+          start_time: entry.start_time,
+          end_time: entry.end_time,
+          subject: entry.subject,
+          room: entry.room || null,
+          instructor: entry.instructor || null,
+        }))
+
+        await supabase.from('timetable_entries').insert(entryRows)
+      }
     }
 
-    if (!documentId) throw new Error('Failed to retrieve document ID after insert')
-
-    // 2. Chunk the raw text and prepend metadata with AI summary and timeline for superior RAG recall
-    const rawChunks = chunkText(data.rawText, 400)
-    
-    const deptStr = target_departments.length > 0 ? target_departments.join(', ') : 'All'
-    const semStr = target_semesters.length > 0 ? target_semesters.join(', ') : 'All'
-    const timelineStr = data.timeline && data.timeline.length > 0 ? JSON.stringify(data.timeline) : (data.deadline || 'None')
-    const header = `[Context: Title: ${data.title} | Type: ${data.doc_type || data.category} | Summary: ${data.summary || ''} | Depts: ${deptStr} | Sems: ${semStr} | Deadlines/Timeline: ${timelineStr} | Priority: ${data.priority}]`
-
-    const enrichedChunks = rawChunks.map(chunk => `${header}\nRaw Text Segment: ${chunk}`)
-
-    // 3. Embed enriched chunks locally using Xenova
-    const embeddingsList: number[][] = []
-    for (const chunk of enrichedChunks) {
-      embeddingsList.push(await generateEmbedding(chunk))
-    }
-
-    // 4. Insert chunks into DB
-    const chunkRows = enrichedChunks.map((chunkText, index) => ({
-      document_id: documentId,
-      chunk_text: chunkText,
-      embedding: embeddingsList[index],
-    }))
-
-    const { error: chunksError } = await supabase
-      .from('document_chunks')
-      .insert(chunkRows)
-
-    if (chunksError) throw new Error(`Chunks insert failed: ${chunksError.message}`)
-
-    return { success: true, documentId, isPublished }
+    return { success: true, documentId: createdDocumentId }
   } catch (error: unknown) {
     console.error('Error in publishDocument:', error)
+    // Clean up created document if it failed halfway
+    if (createdDocumentId) {
+      try {
+        const auth = await verifyAdminAction()
+        if (auth.supabase) {
+          await auth.supabase.from('documents').delete().eq('id', createdDocumentId)
+        }
+      } catch (cleanupErr) {
+        console.warn('Failed to cleanup partial document record:', cleanupErr)
+      }
+    }
     return { success: false, error: getErrorMessage(error) }
   }
 }
@@ -342,22 +405,13 @@ export async function publishDocument(data: ExtractedData, isDraft: boolean = fa
 export type UpdateDocumentPayload = {
   id: string
   title: string
-  doc_type: DocType
-  category: string
-  audience?: string
-  target_departments: string[]
-  target_semesters: number[]
-  summary: string
-  key_points: string[]
-  action_items: string[]
-  timeline: TimelineMilestone[]
-  dates: string
-  starts_at?: string | null
-  deadline: string | null
-  priority: string
-  subject_code?: string | null
-  is_published?: boolean
-  is_archived?: boolean
+  description?: string | null
+  category: DocumentCategory
+  tracks_completion: boolean
+  target_departments: string[] | null
+  target_semesters: number[] | null
+  target_sections: string[] | null
+  expires_at?: string | null
   status?: 'published' | 'draft' | 'archived'
 }
 
@@ -370,37 +424,23 @@ export async function updateDocument(payload: UpdateDocumentPayload) {
 
     const supabase = auth.supabase
 
-    const { target_departments, target_semesters } = normalizeAudience(
-      payload.target_departments,
-      payload.target_semesters
-    )
-
     const updatePayload: Record<string, unknown> = {
       title: payload.title,
-      doc_type: payload.doc_type || 'general_notice',
+      description: payload.description || null,
       category: payload.category,
-      audience: payload.audience || target_departments.join(', '),
-      target_departments,
-      target_semesters,
-      summary: payload.summary || '',
-      key_points: payload.key_points || [],
-      action_items: payload.action_items || [],
-      timeline: payload.timeline || [],
-      subject_code: payload.subject_code || null,
-      dates: payload.dates,
-      starts_at: safeIsoDate(payload.starts_at),
-      deadline: safeIsoDate(payload.deadline),
-      priority: payload.priority,
+      tracks_completion: payload.tracks_completion,
+      target_departments: payload.target_departments,
+      target_semesters: payload.target_semesters,
+      target_sections: payload.target_sections,
+      expires_at: payload.expires_at || null,
+      updated_at: new Date().toISOString(),
     }
 
-    if (typeof payload.is_published === 'boolean') {
-      updatePayload.is_published = payload.is_published
-    }
-    if (typeof payload.is_archived === 'boolean') {
-      updatePayload.is_archived = payload.is_archived
-    }
     if (payload.status) {
       updatePayload.status = payload.status
+      if (payload.status === 'published') {
+        updatePayload.published_at = new Date().toISOString()
+      }
     }
 
     const { error: updateError } = await supabase
@@ -408,35 +448,7 @@ export async function updateDocument(payload: UpdateDocumentPayload) {
       .update(updatePayload)
       .eq('id', payload.id)
 
-    if (updateError) {
-      console.warn('Full update failed, trying fallback without lifecycle columns:', updateError.message)
-      const fallbackPayload: Record<string, unknown> = {
-        title: payload.title,
-        doc_type: payload.doc_type || 'general_notice',
-        category: payload.category,
-        audience: payload.audience || target_departments.join(', '),
-        target_departments,
-        target_semesters,
-        summary: payload.summary || '',
-        key_points: payload.key_points || [],
-        action_items: payload.action_items || [],
-        timeline: payload.timeline || [],
-        subject_code: payload.subject_code || null,
-        dates: payload.dates,
-        starts_at: safeIsoDate(payload.starts_at),
-        deadline: safeIsoDate(payload.deadline),
-        priority: payload.priority,
-      }
-      if (typeof payload.is_published === 'boolean') {
-        fallbackPayload.is_published = payload.is_published
-      }
-      const { error: fallbackErr } = await supabase
-        .from('documents')
-        .update(fallbackPayload)
-        .eq('id', payload.id)
-
-      if (fallbackErr) throw new Error(`Document update failed: ${fallbackErr.message}`)
-    }
+    if (updateError) throw new Error(updateError.message)
 
     return { success: true }
   } catch (error: unknown) {
@@ -453,31 +465,17 @@ export async function toggleDocumentLifecycle(id: string, action: 'publish' | 'd
     }
 
     const supabase = auth.supabase
-
-    let updateData: Record<string, unknown> = {}
-    if (action === 'publish' || action === 'restore') {
-      updateData = { is_published: true, is_archived: false, status: 'published' }
-    } else if (action === 'draft') {
-      updateData = { is_published: false, is_archived: false, status: 'draft' }
-    } else if (action === 'archive') {
-      updateData = { is_published: false, is_archived: true, status: 'archived' }
-    }
+    const status = action === 'publish' || action === 'restore' ? 'published' : action === 'draft' ? 'draft' : 'archived'
 
     const { error } = await supabase
       .from('documents')
-      .update(updateData)
+      .update({
+        status,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id)
 
-    if (error) {
-      // Fallback if status/is_archived columns are not present
-      const fallbackData = { is_published: action === 'publish' || action === 'restore' }
-      const { error: fallbackError } = await supabase
-        .from('documents')
-        .update(fallbackData)
-        .eq('id', id)
-
-      if (fallbackError) throw new Error(fallbackError.message)
-    }
+    if (error) throw new Error(error.message)
 
     return { success: true }
   } catch (error: unknown) {
@@ -486,9 +484,15 @@ export async function toggleDocumentLifecycle(id: string, action: 'publish' | 'd
   }
 }
 
-export async function deletePublishedDocument(id: string, fileUrl: string) {
+/**
+ * Executes canonical Section 20 institutional document hard deletion:
+ * 1. Find historical message_sources referencing document -> set document_id = NULL (preserve source_title)
+ * 2. Find document_completions referencing document -> set document_id = NULL (preserve document_title)
+ * 3. Delete document row (cascades to document_chunks, academic_events, timetables, timetable_entries)
+ * 4. Remove physical PDF file from private Storage bucket
+ */
+export async function deletePublishedDocument(id: string, storagePathOrUrl: string) {
   try {
-    // 0. Strict server-side authorization check (403 Forbidden if not admin)
     const auth = await verifyAdminAction()
     if (!auth.authorized) {
       return { success: false, error: auth.error || '403 Forbidden: Admin privileges required' }
@@ -496,24 +500,33 @@ export async function deletePublishedDocument(id: string, fileUrl: string) {
 
     const supabase = auth.supabase
 
-    // 1. Delete from Storage
-    const fileName = extractStoragePath(fileUrl, 'documents')
-    
-    if (fileName) {
-      await supabase.storage
-        .from('documents')
-        .remove([fileName])
-    }
+    // 1. Disassociate message sources
+    await supabase
+      .from('message_sources')
+      .update({ document_id: null })
+      .eq('document_id', id)
 
-    // 2. Delete from Database (Cascade should delete chunks, but we can do it manually just in case)
-    await supabase.from('document_chunks').delete().eq('document_id', id)
-    
-    const { error } = await supabase
+    // 2. Disassociate document completions
+    await supabase
+      .from('document_completions')
+      .update({ document_id: null })
+      .eq('document_id', id)
+
+    // 3. Delete document from database (cascades chunks, events, timetables)
+    const { error: dbError } = await supabase
       .from('documents')
       .delete()
       .eq('id', id)
 
-    if (error) throw new Error(`Database delete failed: ${error.message}`)
+    if (dbError) throw new Error(`Database delete failed: ${dbError.message}`)
+
+    // 4. Delete storage file separately
+    const storagePath = extractStoragePath(storagePathOrUrl, INSTITUTIONAL_BUCKET)
+    if (storagePath) {
+      await supabase.storage
+        .from(INSTITUTIONAL_BUCKET)
+        .remove([storagePath])
+    }
 
     return { success: true }
   } catch (error: unknown) {

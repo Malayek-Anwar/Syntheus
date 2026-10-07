@@ -1,4 +1,78 @@
-import { isNoticeArchived } from '@/utils/deadlines'
+import type { DocumentCategory, InstituteCategory, StudyCategory, AcademicEventType } from '@/types/database'
+
+export const INSTITUTE_CATEGORIES: InstituteCategory[] = [
+  'notice',
+  'circular',
+  'schedule',
+  'calendar',
+  'syllabus',
+  'form',
+  'admission',
+  'registration',
+  'scholarship',
+  'placement',
+  'fees',
+]
+
+export const STUDY_CATEGORIES: StudyCategory[] = [
+  'notes',
+  'reference_material',
+  'question_paper',
+  'question_bank',
+  'assignment',
+]
+
+export const ALL_DOCUMENT_CATEGORIES: DocumentCategory[] = [
+  ...INSTITUTE_CATEGORIES,
+  ...STUDY_CATEGORIES,
+]
+
+export const CATEGORY_META: Record<DocumentCategory, { label: string; group: 'institute' | 'study'; icon: string }> = {
+  // Institute
+  notice: { label: 'Notice', group: 'institute', icon: '📢' },
+  circular: { label: 'Circular', group: 'institute', icon: '📜' },
+  schedule: { label: 'Schedule', group: 'institute', icon: '⏱️' },
+  calendar: { label: 'Academic Calendar', group: 'institute', icon: '📅' },
+  syllabus: { label: 'Syllabus', group: 'institute', icon: '📖' },
+  form: { label: 'Form', group: 'institute', icon: '📝' },
+  admission: { label: 'Admission', group: 'institute', icon: '🎓' },
+  registration: { label: 'Registration', group: 'institute', icon: '✍️' },
+  scholarship: { label: 'Scholarship', group: 'institute', icon: '🏆' },
+  placement: { label: 'Placement', group: 'institute', icon: '💼' },
+  fees: { label: 'Fees & Dues', group: 'institute', icon: '💳' },
+  // Study
+  notes: { label: 'Lecture Notes', group: 'study', icon: '📓' },
+  reference_material: { label: 'Reference Material', group: 'study', icon: '📚' },
+  question_paper: { label: 'Question Paper', group: 'study', icon: '📄' },
+  question_bank: { label: 'Question Bank', group: 'study', icon: '🗂️' },
+  assignment: { label: 'Assignment', group: 'study', icon: '📋' },
+}
+
+export const ACADEMIC_EVENT_TYPES: AcademicEventType[] = [
+  'exam',
+  'assignment_deadline',
+  'registration_deadline',
+  'admission_deadline',
+  'scholarship_deadline',
+  'semester_start',
+  'semester_end',
+  'holiday',
+  'class_event',
+  'other',
+]
+
+export const EVENT_TYPE_META: Record<AcademicEventType, { label: string; icon: string }> = {
+  exam: { label: 'Exam', icon: '📝' },
+  assignment_deadline: { label: 'Assignment Deadline', icon: '⏰' },
+  registration_deadline: { label: 'Registration Deadline', icon: '✍️' },
+  admission_deadline: { label: 'Admission Deadline', icon: '🎓' },
+  scholarship_deadline: { label: 'Scholarship Deadline', icon: '🏆' },
+  semester_start: { label: 'Semester Start', icon: '🚀' },
+  semester_end: { label: 'Semester End', icon: '🏁' },
+  holiday: { label: 'Holiday', icon: '🎉' },
+  class_event: { label: 'Class Event', icon: '🏫' },
+  other: { label: 'Academic Event', icon: '📌' },
+}
 
 export type SuggestionPrompt = {
   label: string
@@ -7,14 +81,13 @@ export type SuggestionPrompt = {
 }
 
 export type SuggestionContext = {
-  department?: string
-  semester?: number | string
+  department?: string | null
+  semester?: number | string | null
   personalDocuments?: Array<{ title: string }>
-  recentNotices?: Array<{
+  upcomingEvents?: Array<{
     title: string
-    category?: string | null
-    deadline?: string | null
-    is_archived?: boolean | null
+    event_type?: string | null
+    starts_at?: string | null
   }>
 }
 
@@ -28,7 +101,7 @@ export function generatePersonalizedSuggestions(ctx?: SuggestionContext): Sugges
 
   const suggestions: SuggestionPrompt[] = []
 
-  // 1. If student has uploaded personal documents, prioritize questions about their private files!
+  // 1. Personal documents prioritization
   if (ctx?.personalDocuments && ctx.personalDocuments.length > 0) {
     for (const doc of ctx.personalDocuments.slice(0, 2)) {
       const cleanTitle = doc.title.replace(/\.pdf$/i, '').trim()
@@ -41,19 +114,16 @@ export function generatePersonalizedSuggestions(ctx?: SuggestionContext): Sugges
     }
   }
 
-  // 2. If there are active notices with deadlines for this student
-  const activeNotices = ctx?.recentNotices?.filter((notice) => !isNoticeArchived(notice)) ?? []
-  if (activeNotices.length > 0) {
-    const noticeWithDeadline = activeNotices.find((n) => n.deadline)
-    if (noticeWithDeadline) {
-      const cleanNotice = noticeWithDeadline.title.replace(/\.pdf$/i, '').trim()
-      const shortNotice = cleanNotice.length > 18 ? cleanNotice.slice(0, 16) + '...' : cleanNotice
-      suggestions.push({
-        label: `⏳ ${shortNotice}`,
-        query: `What is the deadline and requirements for ${cleanNotice}?`,
-        description: `Check upcoming deadline info`,
-      })
-    }
+  // 2. Upcoming events prioritization
+  if (ctx?.upcomingEvents && ctx.upcomingEvents.length > 0) {
+    const event = ctx.upcomingEvents[0]
+    const cleanTitle = event.title.replace(/\.pdf$/i, '').trim()
+    const shortTitle = cleanTitle.length > 18 ? cleanTitle.slice(0, 16) + '...' : cleanTitle
+    suggestions.push({
+      label: `⏳ ${shortTitle}`,
+      query: `What are the details and key dates for "${cleanTitle}"?`,
+      description: `Check upcoming event details`,
+    })
   }
 
   // 3. Department & Semester specific academic schedule / lab suggestions
@@ -69,10 +139,10 @@ export function generatePersonalizedSuggestions(ctx?: SuggestionContext): Sugges
     description: `Exam schedule & syllabus updates`,
   })
 
-  // 4. Fill in additional department / institutional prompts if needed
+  // 4. Fallback circulars
   if (suggestions.length < 4) {
     suggestions.push({
-      label: `💳 ${sem} Fee Dues`,
+      label: `💳 ${sem} Fees`,
       query: `Are there any fee payment or registration deadlines for ${sem}?`,
       description: `Tuition dues and registration`,
     })
@@ -86,7 +156,6 @@ export function generatePersonalizedSuggestions(ctx?: SuggestionContext): Sugges
     })
   }
 
-  // Deduplicate by query and limit to 4
   const seenQueries = new Set<string>()
   const finalPrompts: SuggestionPrompt[] = []
   for (const s of suggestions) {

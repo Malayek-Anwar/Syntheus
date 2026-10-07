@@ -4,6 +4,8 @@ import React, { useState, useMemo } from 'react'
 import Link from 'next/link'
 import type { DocumentItem } from './NoticeFilterFeed'
 import { isNoticeDeadlinePassed } from '@/utils/deadlines'
+import { CATEGORY_META } from '@/utils/constants'
+import type { DocumentCategory } from '@/types/database'
 
 interface ArchivedNoticeFeedProps {
   documents: DocumentItem[]
@@ -135,9 +137,16 @@ export function ArchivedNoticeFeed({
               >
                 <div className="min-w-0 flex-1 space-y-1.5">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-semibold text-slate-500">
-                      {doc.category || 'Institutional Notice'}
-                    </span>
+                    {(() => {
+                      const catMeta = doc.category && (doc.category in CATEGORY_META)
+                        ? CATEGORY_META[doc.category as DocumentCategory]
+                        : null
+                      return (
+                        <span className="text-xs font-semibold text-slate-500">
+                          {catMeta ? `${catMeta.icon} ${catMeta.label}` : (doc.category || 'Institutional Notice')}
+                        </span>
+                      )
+                    })()}
 
                     {/* Archived Status Badges */}
                     {doc.deadline && (

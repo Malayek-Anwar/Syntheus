@@ -1,381 +1,224 @@
-# 🎓 Syntheus
+# 🎓 Syntheus — Academic Intelligence Platform
 
 > **The right information. To the right person. At the right time.**
 
-Syntheus is an AI-powered institutional information platform designed for universities and educational institutions.
+Syntheus is an intelligent campus knowledge and academic coordination platform engineered for modern universities and educational institutions.
 
-It transforms scattered campus notices, assignments, deadlines, and other institutional documents into a structured knowledge base, then delivers relevant information to users based on their role and academic context.
-
-Students can discover personalized campus updates, search institutional notices, and ask questions using a source-grounded AI assistant. They can also maintain a separate private document space for their own assignments, resumes, notes, and study materials.
+It transforms scattered campus notices, examination circulars, fee schedules, official timetables, and lecture resources into a structured, audience-targeted institutional knowledge base—delivering verified information directly to students and faculty while powering a source-grounded, private AI assistant.
 
 ---
 
-## 💡 Why Syntheus?
+## 💡 The Problem & The Solution
 
-Universities generate an enormous amount of information every day.
+Universities generate hundreds of circulars, academic notices, and schedule updates every month. Critical information gets lost in message groups, buried in lengthy PDFs, or overlooked until deadlines have already passed.
 
-Notices get buried. Deadlines are missed. Students have to search through PDFs and message groups to find information that may already exist somewhere.
-
-The problem isn't a lack of information.
-
-**It's getting the right information to the right person at the right time.**
-
-Syntheus creates an intelligent layer over institutional information to make that process more accessible, searchable, and personalized.
+Syntheus solves this through:
+1. **Audience-Targeted Information Filtering:** Every document is indexed with granular department, semester, and section targeting rules.
+2. **Academic Identity & Registration Security:** Strict database triggers and admin verification ensure that student records remain authoritative and immutable.
+3. **Structured Timetables & Events:** Automatic extraction of weekly class schedules, exam dates, and registration deadlines into interactive calendar grids.
+4. **Source-Grounded Student AI:** A local-embedding RAG assistant that answers questions with verifiable citations from official college documents and students' private study vaults.
 
 ---
 
-## ✨ Features
-
-### 🏛️ Institutional Knowledge Base
-
-Authorized administrators can upload official campus notices as PDFs.
-
-Syntheus automatically extracts and organizes important metadata, including:
-
-- Title
-- Department
-- Semester
-- Category
-- Deadlines
-- Priority
-- Intended audience
-
-Documents are chunked and indexed for efficient retrieval.
-
-### 🎯 Personalized Student Feed
-
-Students provide their academic context during registration, including their department and semester.
-
-The student portal then surfaces notices relevant to them instead of requiring them to search through the entire institutional repository.
-
-### 📢 Campus Notices Hub
-
-Students can browse and search the complete collection of published campus announcements.
-
-This provides both:
-
-- **Personalized discovery** — "What matters to me?"
-- **Global search** — "What information exists?"
-
-### 📄 Personal Document Vault
-
-Students can upload their own private documents, such as:
-
-- Assignments
-- Resumes
-- Study materials
-- Personal academic documents
-
-Personal documents are kept separate from official institutional information and are protected using Row Level Security.
-
-### 🤖 AI Campus Assistant
-
-Syntheus provides a conversational AI interface for asking questions about institutional and personal documents.
-
-The assistant uses Retrieval-Augmented Generation (RAG) to retrieve relevant document content before generating an answer.
-
-Responses are grounded in the available documents and include direct citations to their sources.
-
-> Syntheus isn't just a chatbot that can read PDFs.
->
-> **It turns institutional information into something people can actually use.**
-
----
-
-## 🧠 Hybrid RAG
-
-Syntheus uses a hybrid retrieval pipeline rather than relying solely on semantic similarity.
+## 🏛️ Platform Architecture & Features
 
 ```text
-                    User Query
-                        │
-             ┌──────────┴──────────┐
-             ▼                     ▼
-       Vector Search          Full-Text Search
-        (pgvector)             (PostgreSQL)
-             │                     │
-             └──────────┬──────────┘
-                        ▼
-             Reciprocal Rank Fusion
-                        │
-                        ▼
-                Relevant Chunks
-                        │
-                        ▼
-                    LLM (Groq)
-                        │
-                        ▼
-              Grounded AI Response
-                        │
-                        ▼
-                    Citations
+                                  SYNTHEUS ARCHITECTURE
+                                            │
+               ┌────────────────────────────┴────────────────────────────┐
+               │                                                         │
+     Official Institutional KB                                 Personal Document Vault
+  (Bucket: institutional-documents)                        (Bucket: personal-documents)
+               │                                                         │
+       AI Metadata Extraction                                   Encrypted PDF Storage
+ (Category, Targeting, Events, Timetables)                     (<student_id>/<file>.pdf)
+               │                                                         │
+     Local Chunking & Embeddings                               Chunking & Embeddings
+      (all-MiniLM-L6-v2, 384-dim)                            (all-MiniLM-L6-v2, 384-dim)
+               │                                                         │
+               └────────────────────────────┬────────────────────────────┘
+                                            │
+                                  Student RAG Engine
+                                            │
+                               ┌────────────┴────────────┐
+                               ▼                         ▼
+                         Vector Search             Audience Filter
+                       (pgvector Cosine)        (Dept, Sem, Sec Match)
+                               │                         │
+                               └────────────┬────────────┘
+                                            ▼
+                                  Groq LLM Intelligence
+                                  (openai/gpt-oss-120b)
+                                            │
+                                            ▼
+                                 Grounded Student Chat
+                               + Verifiable Source Citations
 ```
 
-### Retrieval
+### 1. 🛡️ Student Registration & Verification Workflow
+- **Pending Claim Ingestion:** During signup, student registration records (`roll_number`, `institutional_name`, `department`, `semester`, `section`) are inserted into the database with `account_status: 'pending'`.
+- **Academic Field Immutability:** A PostgreSQL security definer trigger (`protect_student_academic_fields()`) guarantees that non-admin users cannot mutate authoritative academic attributes or elevate their verification status.
+- **Verification Notification Modals:**
+  - **First-time Signup:** Interactive pop-up detailing the submitted registration record and informing the student that administrative verification is pending.
+  - **Pending Login Interception:** If a registered student attempts to sign in before verification, access is intercepted and a status notification modal is displayed.
+- **Administrator Review Directory:** College administrators can review pending claims with 1-click verification or suspension.
 
-- **Semantic search:** PostgreSQL `pgvector`
-- **Keyword search:** PostgreSQL full-text search
-- **Ranking:** Reciprocal Rank Fusion (RRF)
-- **Embeddings:** `all-MiniLM-L6-v2`
-- **Embedding dimension:** 384
+### 2. 🎯 Granular Audience Targeting
+Documents, academic events, and timetables are filtered according to the canonical targeting rules:
+- **Dimensions:** Department, Semester (1–8), and Section.
+- **Wildcard Semantics:** A `NULL` document dimension matches all students in that dimension.
+- **Strict Student Null Rule:** A student with a missing or null academic attribute never bypasses targeting rules, preventing unauthorized access.
 
-### AI
+### 3. 📂 16 Canonical Document Categories
+Documents are partitioned across two core domains:
+- **Institute Documents (11 Categories):**
+  `notice`, `circular`, `schedule`, `calendar`, `syllabus`, `form`, `admission`, `registration`, `scholarship`, `placement`, `fees`
+- **Study Resources (5 Categories):**
+  `notes`, `reference_material`, `question_paper`, `question_bank`, `assignment`
 
-LLM inference is powered by Groq using `openai/gpt-oss-120b`.
+### 4. 🗓️ Structured Academic Events & Timetables
+- **Structured Events:** 10 canonical event types (`exam`, `assignment_deadline`, `registration_deadline`, `admission_deadline`, `scholarship_deadline`, `semester_start`, `semester_end`, `holiday`, `class_event`, `other`) extracted and surfaced in the student calendar.
+- **Weekly Class Timetable:** Day-of-week class schedules with start/end timings, subject names, classroom numbers, and instructors.
 
-Embeddings are generated locally using `@xenova/transformers`, avoiding third-party embedding API costs and reducing dependency on external embedding services.
+### 5. 🤖 Grounded Student AI Assistant
+- **Student-Only Scope:** AI Chat is restricted to authenticated, verified students.
+- **Privacy Partitioning:** Queries search both verified institutional documents and the student's private uploaded files (`personal_documents`).
+- **Citation Tracking:** Cited sources are persisted in `message_sources` and displayed alongside answers.
+- **Local Embeddings:** Embeddings are generated client/server-side using `@xenova/transformers` (`all-MiniLM-L6-v2`), avoiding external embedding latency and API costs.
 
----
-
-## 🔐 Privacy & Access Control
-
-Syntheus separates official institutional information from user-owned personal documents.
-
-Supabase Row Level Security (RLS) is used to ensure that:
-
-- Published institutional documents are accessible to authenticated users.
-- Students can only manage their own personal documents.
-- Users can only access their own chat history.
-- Personal document data remains isolated from other users.
-
----
-
-## 🛠️ Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Framework | Next.js 16 |
-| Frontend | React 19 |
-| Language | TypeScript |
-| Styling | Tailwind CSS 4 |
-| AI Interface | Vercel AI SDK |
-| LLM | Groq |
-| Model | `openai/gpt-oss-120b` |
-| Embeddings | `@xenova/transformers` |
-| Embedding Model | `all-MiniLM-L6-v2` |
-| Document Parsing | `pdf-parse` |
-| Database | Supabase PostgreSQL |
-| Vector Search | `pgvector` |
-| Keyword Search | PostgreSQL Full-Text Search |
-| Authentication | Supabase Auth |
-| Storage | Supabase Storage |
-| Security | Supabase Row Level Security |
+### 6. 🔒 Private Storage & Two-Phase Hard Deletion
+- **Zero Public Buckets:** Storage uses private buckets (`institutional-documents` and `personal-documents`).
+- **Short-Lived Signed URLs:** PDF previews and downloads utilize authenticated, time-limited signed URLs.
+- **Two-Phase Document Deletion:** Deleting a document disassociates historical message citations and document completion logs (`SET NULL`) to preserve audit trails before deleting database records and storage files.
 
 ---
 
-## 🏗️ Architecture
+## 🛠️ Technology Stack
+
+| Layer | Technology | Specification |
+|---|---|---|
+| **Framework** | Next.js 16 (App Router) | Turbopack compilation |
+| **Frontend** | React 19 / TypeScript | Strict mode type-safety |
+| **Styling** | Tailwind CSS 4 | Custom design tokens & badges |
+| **Database** | Supabase PostgreSQL | 14 canonical tables, 6 enums |
+| **Vector Search** | PostgreSQL `pgvector` | HNSW cosine vector index (384-dim) |
+| **Embeddings** | `@xenova/transformers` | Local ONNX `all-MiniLM-L6-v2` |
+| **LLM Inference** | Groq Cloud | `openai/gpt-oss-120b` |
+| **Authentication** | Supabase Auth + SSR | Server Action session validation |
+| **Storage** | Supabase Storage | Private buckets + Signed URLs |
+| **Route Protection** | Next.js 16 Proxy Middleware | Database-backed identity lookups |
+
+---
+
+## 📁 Repository Structure
 
 ```text
-                         SYNTHEUS
-                            │
-              ┌─────────────┴─────────────┐
-              │                           │
-       Official Documents           Personal Documents
-              │                           │
-              ▼                           ▼
-       PDF Extraction               Private Storage
-              │                           │
-              ▼                           │
-       AI Metadata Extraction             │
-              │                           │
-              ▼                           │
-        Chunking + Embeddings             │
-              │                           │
-              ▼                           ▼
-       Institutional KB             Personal KB
-              │                           │
-              └─────────────┬─────────────┘
-                            ▼
-                      Hybrid Retrieval
-                            │
-                 ┌──────────┴──────────┐
-                 ▼                     ▼
-             pgvector             Full-Text
-            Semantic Search         Search
-                 │                     │
-                 └──────────┬──────────┘
-                            ▼
-                           RRF
-                            │
-                            ▼
-                    Relevant Context
-                            │
-                            ▼
-                         Groq LLM
-                            │
-                            ▼
-                   Grounded Response
-                            │
-                            ▼
-                        Citations
+Syntheus/
+├── src/
+│   ├── app/
+│   │   ├── admin/                      # Administrator dashboard & publishing studio
+│   │   │   ├── students/actions.ts     # Student verification & directory actions
+│   │   │   ├── actions.ts              # PDF ingestion, extraction, and lifecycle
+│   │   │   └── page.tsx
+│   │   ├── api/
+│   │   │   └── chat/route.ts           # Streaming RAG assistant endpoint
+│   │   ├── login/                      # Student & Admin sign-in flow
+│   │   ├── signup/                     # Interactive student registration
+│   │   ├── student/                    # Verified student portal
+│   │   │   ├── archive/                # Past & expired circulars archive
+│   │   │   ├── attention/              # Actionable notices & completion tracking
+│   │   │   ├── calendar/               # Academic events & weekly timetable grid
+│   │   │   ├── chat/                   # Student AI Assistant workspace
+│   │   │   ├── my-documents/           # Encrypted personal document vault
+│   │   │   ├── notices/                # Institutional circulars & document hub
+│   │   │   │   └── [id]/page.tsx       # Authoritative PDF viewer & details
+│   │   │   ├── study/                  # Lecture notes, textbooks, past papers
+│   │   │   ├── layout.tsx
+│   │   │   └── page.tsx                # Student home & dashboard
+│   │   ├── unauthorized/page.tsx
+│   │   ├── layout.tsx
+│   │   └── page.tsx                    # Identity-based root router
+│   ├── components/                     # Modular UI components
+│   │   ├── AccountPendingModal.tsx     # Login pending verification modal
+│   │   ├── AdminDocumentDirectory.tsx  # Admin document lifecycle management
+│   │   ├── AdminStudentDirectory.tsx   # Admin student verification UI
+│   │   ├── AdminUploadForm.tsx         # Document ingestion & AI review studio
+│   │   ├── RegistrationPendingModal.tsx# Signup verification modal
+│   │   ├── StudentCalendarView.tsx     # Weekly timetable grid & calendar timeline
+│   │   ├── StudentChat.tsx             # Interactive RAG chat UI with citations
+│   │   ├── StudyResourceFeed.tsx       # Filterable study material feed
+│   │   └── UrgentNoticeCard.tsx        # High-priority notice cards
+│   ├── types/
+│   │   └── database.ts                 # Full TypeScript schema for 14 tables & 6 enums
+│   ├── utils/
+│   │   ├── audience.ts                 # Targeting rules & Student NULL enforcement
+│   │   ├── auth.ts                     # Database domain table identity lookups
+│   │   ├── constants.ts                # 16 Categories & 10 Event types metadata
+│   │   ├── deadlines.ts                # Date parsing & cutoff calculations
+│   │   ├── embeddings.ts               # Local Xenova embedding pipeline
+│   │   ├── pdf.ts                      # PDF text extraction
+│   │   ├── storage.ts                  # Private storage & signed URL utilities
+│   │   └── supabase/                   # SSR server & client Supabase factories
+│   └── proxy.ts                        # Route protection middleware
+├── supabase/
+│   └── migrations/
+│       ├── 202610070000_syntheus_v1_canonical_schema.sql
+│       └── 202610070001_student_signup_and_security.sql
+├── package.json
+└── README.md
 ```
 
 ---
 
 ## 🚀 Getting Started
 
-### Prerequisites
+### 1. Prerequisites
+- **Node.js**: v18.17+ or v20+
+- **Supabase Account**: With `pgvector` enabled
+- **Groq API Key**: For fast LLM inference
 
-- Node.js
-- npm
-- A Supabase project
-- A Groq API key
-
-### 1. Clone the repository
-
+### 2. Installation
 ```bash
 git clone https://github.com/Malayek-Anwar/Syntheus.git
 cd Syntheus
-```
-
-### 2. Install dependencies
-
-```bash
 npm install
 ```
 
-### 3. Configure environment variables
-
+### 3. Environment Variables
 Create a `.env.local` file in the project root:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 
+# Groq Cloud API Key
 GROQ_API_KEY=gsk_your_groq_api_key
 ```
 
-### 4. Configure Supabase
+### 4. Database & Storage Setup
+Execute the canonical migrations in order in your Supabase SQL Editor:
+1. `supabase/migrations/202610070000_syntheus_v1_canonical_schema.sql`
+2. `supabase/migrations/202610070001_student_signup_and_security.sql`
 
-Enable the `pgvector` extension and create the required database tables, indexes, RLS policies, and hybrid-search function.
+Create the private storage buckets in your Supabase Storage dashboard:
+- `institutional-documents` (Private)
+- `personal-documents` (Private)
 
-The required SQL schema is available in the project documentation.
-
-Create the following storage buckets:
-
-- `documents` — official institutional documents
-- `personal_documents` — private user documents
-
-### 5. Run the development server
-
+### 5. Running the Application
 ```bash
+# Start local development server
 npm run dev
+
+# Run TypeScript type check
+npx tsc --noEmit
+
+# Create optimized production build
+npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
-
----
-
-## 👤 User Roles
-
-### Student
-
-Students can:
-
-- View their personalized notice feed
-- Browse campus announcements
-- Search institutional information
-- Chat with the AI assistant
-- Upload and query personal documents
-
-### Administrator
-
-Administrators can:
-
-- Upload institutional notices
-- Review AI-extracted metadata
-- Manage published documents
-- Preview uploaded PDFs
-- Remove outdated documents
-- Trigger document indexing
-
----
-
-## 📁 Project Structure
-
-```text
-├── public/
-│
-├── src/
-│   ├── app/
-│   │   ├── admin/              # Admin dashboard and notice management
-│   │   ├── api/
-│   │   │   └── chat/           # Streaming RAG chat API
-│   │   ├── login/              # Authentication
-│   │   ├── signup/             # Registration and user context
-│   │   ├── student/            # Student portal
-│   │   │   ├── notices/        # Campus notice hub
-│   │   │   ├── chat/           # AI assistant
-│   │   │   └── my-documents/   # Personal document vault
-│   │   ├── layout.tsx
-│   │   └── page.tsx
-│   │
-│   ├── components/             # Reusable UI components
-│   │
-│   ├── utils/
-│   │   ├── embeddings.ts       # Local embedding pipeline
-│   │   ├── pdf.ts              # PDF text extraction
-│   │   ├── errors.ts           # Error utilities
-│   │   └── supabase/            # Supabase clients and helpers
-│   │
-│   └── middleware.ts            # Authentication and route protection
-│
-├── package.json
-└── tsconfig.json
-```
-
----
-
-## 🗺️ Roadmap
-
-### Current Prototype
-
-- [x] Role-based authentication
-- [x] Admin document management
-- [x] AI-assisted metadata extraction
-- [x] Institutional document storage
-- [x] Personalized student notice feed
-- [x] Campus notice search
-- [x] Personal document workspace
-- [x] Hybrid vector + keyword retrieval
-- [x] Local document embeddings
-- [x] RAG-based AI assistant
-- [x] Source-grounded responses
-- [x] Persistent chat history
-- [x] Row Level Security
-
-### Future
-
-- [ ] Automatic deadline and event tracking
-- [ ] Intelligent notifications
-- [ ] Document relationship detection
-- [ ] Duplicate detection
-- [ ] Document version comparison
-- [ ] Faculty-specific portal
-- [ ] Administration-specific portal
-- [ ] Advanced institutional analytics
-- [ ] More granular permissions and workflows
-
----
-
-## 🎯 Vision
-
-Syntheus aims to evolve from a campus document assistant into an **intelligent institutional information layer**.
-
-The long-term goal is simple:
-
-> **Institutions shouldn't have to repeatedly tell people where information is. Syntheus should understand the information and help people find what matters to them.**
-
----
-
-## 🏆 Smart India Hackathon 2026
-
-Syntheus is being developed as a prototype for the **Smart India Hackathon 2026** internal hackathon.
-
-The project focuses on the challenge of information overload in educational institutions and explores how document intelligence, personalized information delivery, and grounded generative AI can improve access to institutional knowledge.
+Open [http://localhost:3000](http://localhost:3000) to view the portal.
 
 ---
 
 ## 📜 License
-
 This project is licensed under the MIT License.

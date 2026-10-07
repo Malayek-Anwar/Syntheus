@@ -1,6 +1,8 @@
 import React from 'react'
 import Link from 'next/link'
 import { NoticeCompletionButton } from '@/components/NoticeCompletionButton'
+import { CATEGORY_META } from '@/utils/constants'
+import type { DocumentCategory } from '@/types/database'
 
 export interface UrgentNoticeProps {
   id?: string
@@ -102,8 +104,15 @@ export function UrgentNoticeCard({
 
             {/* Category Badge */}
             {category && (
-              <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 truncate">
-                {category}
+              <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 truncate">
+                {category in CATEGORY_META ? (
+                  <>
+                    <span>{CATEGORY_META[category as DocumentCategory].icon}</span>
+                    <span>{CATEGORY_META[category as DocumentCategory].label}</span>
+                  </>
+                ) : (
+                  category
+                )}
               </span>
             )}
           </div>

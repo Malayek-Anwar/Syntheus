@@ -1,44 +1,17 @@
-import { createClient } from '@/utils/supabase/server'
+import { verifyStudentSession } from '@/utils/auth'
 import { getErrorMessage } from '@/utils/errors'
-import { extractPdfText } from '@/utils/pdf'
 import { convertToModelMessages, isTextUIPart, streamText, type UIMessage } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import { generateEmbedding } from '@/utils/embeddings'
-import { normalizeAudience } from '@/utils/audience'
+import { isDocumentVisibleToStudent } from '@/utils/audience'
 
 const groq = createOpenAI({
   apiKey: process.env.GROQ_API_KEY,
   baseURL: 'https://api.groq.com/openai/v1',
 })
 
-type CampusMatch = {
-  title: string
-  chunk_text: string
-}
-
-type CampusDocument = {
-  title: string
-  category: string | null
-  doc_type?: string | null
-  summary?: string | null
-  key_points?: string[] | null
-  action_items?: string[] | null
-  target_departments: string[] | null
-  target_semesters: number[] | null
-  dates: string | null
-  deadline: string | null
-  file_url: string
-}
-
-type PersonalDocument = {
-  title: string
-  file_url: string
-  embedding: unknown
-}
-
 function getMessageText(message: UIMessage | undefined): string {
   if (!message) return ''
-
   return message.parts
     .filter(isTextUIPart)
     .map((part) => part.text)
@@ -47,7 +20,6 @@ function getMessageText(message: UIMessage | undefined): string {
 
 function cosineSimilarity(left: number[], right: number[]): number {
   if (left.length !== right.length || left.length === 0) return 0
-
   let dot = 0
   let leftMagnitude = 0
   let rightMagnitude = 0
@@ -62,203 +34,30 @@ function cosineSimilarity(left: number[], right: number[]): number {
   return dot / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude))
 }
 
-function parseEmbedding(value: unknown): number[] | null {
-  if (Array.isArray(value) && value.every((item) => typeof item === 'number')) {
-    return value
-  }
-
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value) as unknown
-      return parseEmbedding(parsed)
-    } catch {
-      return null
-    }
-  }
-
-  return null
-}
-
-async function extractTextFromStorageOrUrl(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  fileUrl: string,
-  bucketName: 'personal_documents' | 'documents'
-): Promise<string | null> {
-  const match = fileUrl.match(new RegExp(`/${bucketName}/([^?]+)`))
-  const storagePath = match?.[1] ? decodeURIComponent(match[1]) : (!fileUrl.startsWith('http') ? fileUrl : null)
-
-  if (storagePath) {
-    try {
-      const { data, error } = await supabase.storage
-        .from(bucketName)
-        .download(storagePath)
-
-      if (!error && data) {
-        const arrayBuffer = await data.arrayBuffer()
-        const text = await extractPdfText(Buffer.from(arrayBuffer))
-        if (text?.trim()) {
-          return text
-        }
-      }
-    } catch (storageError) {
-      console.warn(`Authenticated storage download failed for ${storagePath}:`, storageError)
-    }
-  }
-
-  try {
-    const res = await fetch(fileUrl)
-    if (res.ok) {
-      const arrayBuffer = await res.arrayBuffer()
-      const text = await extractPdfText(Buffer.from(arrayBuffer))
-      if (text?.trim()) {
-        return text
-      }
-    }
-  } catch (fetchError) {
-    console.warn(`HTTP fetch fallback failed for ${fileUrl}:`, fetchError)
-  }
-
-  return null
-}
-
-async function getCampusContext(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  query: string,
-  queryEmbedding: number[],
-  studentDept: string,
-  studentSem: number
-): Promise<string[]> {
-  const { data: matches, error } = await supabase.rpc('match_documents_hybrid', {
-    query_embedding: queryEmbedding,
-    query_text: query,
-    filter_department: studentDept,
-    filter_semester: studentSem,
-    match_count: 5,
-    rrf_k: 60
-  })
-
-  if (error) {
-    console.error('RPC Error:', error)
-  }
-
-  const matchedChunks = ((matches ?? []) as CampusMatch[])
-    .filter((doc) => doc.title && doc.chunk_text)
-    .map((doc) => `Campus notice: ${doc.title}\nContent: ${doc.chunk_text}`)
-
-  if (matchedChunks.length > 0) {
-    return matchedChunks
-  }
-
-  // Fallback: fetch published notices matching student's department & semester
-  let fallbackQuery = supabase
-    .from('documents')
-    .select('title, category, doc_type, summary, key_points, action_items, target_departments, target_semesters, dates, deadline, file_url')
-    .eq('is_published', true)
-
-  if (studentDept) {
-    fallbackQuery = fallbackQuery.contains('target_departments', [studentDept])
-  }
-  if (studentSem) {
-    fallbackQuery = fallbackQuery.contains('target_semesters', [studentSem])
-  }
-
-  const { data: documents, error: documentsError } = await fallbackQuery
-    .order('created_at', { ascending: false })
-    .limit(5)
-
-  if (documentsError) {
-    console.error('Campus document fallback error:', documentsError)
-    return []
-  }
-
-  const contexts: string[] = []
-  for (const document of (documents ?? []) as CampusDocument[]) {
-    const depts = document.target_departments && document.target_departments.length > 0 ? document.target_departments.join(', ') : 'All'
-    const sems = document.target_semesters && document.target_semesters.length > 0 ? document.target_semesters.join(', ') : 'All'
-
-    let contentText = ''
-    if (document.summary) {
-      const summaryPart = `Summary: ${document.summary}\n`
-      const keyPointsPart = document.key_points && document.key_points.length > 0 ? `Key Points:\n- ${document.key_points.join('\n- ')}\n` : ''
-      const actionItemsPart = document.action_items && document.action_items.length > 0 ? `Action Items:\n- ${document.action_items.join('\n- ')}\n` : ''
-      contentText = `${summaryPart}${keyPointsPart}${actionItemsPart}`.trim()
-    } else if (document.file_url) {
-      const text = await extractTextFromStorageOrUrl(supabase, document.file_url, 'documents')
-      if (text) {
-        contentText = text.slice(0, 4000)
-      }
-    }
-
-    if (!contentText) continue
-
-    contexts.push(
-      `Campus notice: ${document.title}
-Category: ${document.category ?? 'Not specified'}
-Target Departments: ${depts}
-Target Semesters: ${sems}
-Dates: ${document.dates ?? 'Not specified'}
-Deadline: ${document.deadline ?? 'Not specified'}
-Content: ${contentText}`
-    )
-  }
-
-  return contexts
-}
-
-async function getPersonalContext(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  userId: string,
-  query: string,
-  queryEmbedding: number[]
-): Promise<string[]> {
-  const { data: documents, error } = await supabase
-    .from('personal_documents')
-    .select('title, file_url, embedding')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(10)
-
-  if (error) {
-    console.error('Personal document lookup error:', error)
-    return []
-  }
-
-  if (!documents || documents.length === 0) {
-    return []
-  }
-
-  const queryWords = new Set(query.toLowerCase().split(/\W+/).filter(Boolean))
-  const rankedDocuments = ((documents ?? []) as PersonalDocument[])
-    .map((document) => {
-      const embedding = parseEmbedding(document.embedding)
-      const titleWords = document.title.toLowerCase().split(/\W+/).filter(Boolean)
-      const titleScore = titleWords.some((word) => queryWords.has(word)) ? 0.3 : 0
-      const similarity = embedding ? cosineSimilarity(queryEmbedding, embedding) : 0
-
-      return {
-        document,
-        score: similarity + titleScore
-      }
-    })
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 3)
-
-  const contexts: string[] = []
-  for (const { document } of rankedDocuments) {
-    if (!document.file_url) continue
-
-    const text = await extractTextFromStorageOrUrl(supabase, document.file_url, 'personal_documents')
-    if (!text) continue
-
-    contexts.push(`User's Private Uploaded Document: "${document.title}"\nContent:\n${text.slice(0, 6000)}`)
-  }
-
-  return contexts
+type RetrievedSource = {
+  content: string
+  document_id: string | null
+  personal_document_id: string | null
+  source_title: string
+  score: number
 }
 
 export async function POST(req: Request) {
   try {
-    const { messages } = (await req.json()) as { messages?: UIMessage[] }
+    // 1. Strict student session verification (AI Chat is student-only in V1)
+    const auth = await verifyStudentSession()
+    if (!auth.authorized || !auth.student) {
+      return new Response('Unauthorized: Active student account required', { status: 401 })
+    }
+
+    const { student, supabase } = auth
+
+    const body = await req.json()
+    const { messages, conversationId: incomingConvId } = body as {
+      messages?: UIMessage[]
+      conversationId?: string
+    }
+
     if (!messages || messages.length === 0) {
       return Response.json({ error: 'No messages provided' }, { status: 400 })
     }
@@ -268,53 +67,170 @@ export async function POST(req: Request) {
       return Response.json({ error: 'Message text is required' }, { status: 400 })
     }
 
-    // 1. Get user context (department & semester)
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
+    // 2. Resolve or create chat conversation
+    let conversationId = incomingConvId
 
-    if (!user) {
-      return new Response('Unauthorized', { status: 401 })
+    if (conversationId) {
+      const { data: existingConv } = await supabase
+        .from('chat_conversations')
+        .select('id')
+        .eq('id', conversationId)
+        .eq('student_id', student.id)
+        .maybeSingle()
+
+      if (!existingConv) {
+        conversationId = undefined
+      }
     }
 
-    const rawDept = user.user_metadata?.department || 'CSE'
-    const rawSem = user.user_metadata?.semester || 'Semester 1'
+    if (!conversationId) {
+      // Find latest conversation or create new one
+      const { data: latestConv } = await supabase
+        .from('chat_conversations')
+        .select('id')
+        .eq('student_id', student.id)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
-    const { target_departments, target_semesters } = normalizeAudience(rawDept, rawSem)
-    const studentDept = target_departments[0] || 'CSE'
-    const studentSem = target_semesters[0] || 1
+      if (latestConv) {
+        conversationId = latestConv.id
+      } else {
+        const titleSnippet = lastMessage.slice(0, 30).trim() || 'New Chat'
+        const { data: newConv, error: convError } = await supabase
+          .from('chat_conversations')
+          .insert({
+            student_id: student.id,
+            title: titleSnippet,
+            updated_at: new Date().toISOString(),
+          })
+          .select('id')
+          .single()
 
-    // 2. Generate embedding for the question using Local Xenova model
+        if (convError || !newConv) {
+          throw new Error('Failed to create chat conversation')
+        }
+        conversationId = newConv.id
+      }
+    }
+
+    // 3. Generate embedding for query
     const queryEmbedding = await generateEmbedding(lastMessage)
+    const nowIso = new Date().toISOString()
 
-    const [campusContext, personalContext] = await Promise.all([
-      getCampusContext(supabase, lastMessage, queryEmbedding, studentDept, studentSem),
-      getPersonalContext(supabase, user.id, lastMessage, queryEmbedding)
-    ])
+    // 4. Retrieve Institutional Chunks matching targeting & active status
+    const { data: instDocuments } = await supabase
+      .from('documents')
+      .select('id, title, category, target_departments, target_semesters, target_sections, expires_at')
+      .eq('status', 'published')
+      .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
 
-    const contextChunks = [...campusContext, ...personalContext]
-    const retrievedContext = contextChunks.length > 0
-      ? contextChunks.join('\n\n')
+    const eligibleDocIds = (instDocuments ?? [])
+      .filter((doc) =>
+        isDocumentVisibleToStudent(doc, {
+          department: student.department,
+          semester: student.semester,
+          section: student.section,
+        })
+      )
+      .map((d) => d.id)
+
+    const docTitleMap = new Map((instDocuments ?? []).map((d) => [d.id, d.title]))
+
+    const candidateSources: RetrievedSource[] = []
+
+    if (eligibleDocIds.length > 0) {
+      const { data: chunks } = await supabase
+        .from('document_chunks')
+        .select('document_id, content, embedding')
+        .in('document_id', eligibleDocIds)
+        .limit(60)
+
+      for (const chunk of chunks ?? []) {
+        const rawEmb = chunk.embedding as unknown
+        const embArray = Array.isArray(rawEmb)
+          ? (rawEmb as number[])
+          : typeof rawEmb === 'string'
+          ? (JSON.parse(rawEmb) as number[])
+          : []
+
+        if (embArray.length === queryEmbedding.length) {
+          const sim = cosineSimilarity(queryEmbedding, embArray)
+          candidateSources.push({
+            content: chunk.content,
+            document_id: chunk.document_id,
+            personal_document_id: null,
+            source_title: docTitleMap.get(chunk.document_id) || 'Institutional Document',
+            score: sim,
+          })
+        }
+      }
+    }
+
+    // 5. Retrieve Personal Chunks strictly scoped to current student
+    const { data: personalDocs } = await supabase
+      .from('personal_documents')
+      .select('id, title')
+      .eq('student_id', student.id)
+      .eq('status', 'ready')
+
+    const personalDocIds = (personalDocs ?? []).map((d) => d.id)
+    const personalTitleMap = new Map((personalDocs ?? []).map((d) => [d.id, d.title]))
+
+    if (personalDocIds.length > 0) {
+      const { data: personalChunks } = await supabase
+        .from('personal_document_chunks')
+        .select('personal_document_id, content, embedding')
+        .in('personal_document_id', personalDocIds)
+        .limit(40)
+
+      for (const chunk of personalChunks ?? []) {
+        const rawEmb = chunk.embedding as unknown
+        const embArray = Array.isArray(rawEmb)
+          ? (rawEmb as number[])
+          : typeof rawEmb === 'string'
+          ? (JSON.parse(rawEmb) as number[])
+          : []
+
+        if (embArray.length === queryEmbedding.length) {
+          const sim = cosineSimilarity(queryEmbedding, embArray)
+          candidateSources.push({
+            content: chunk.content,
+            document_id: null,
+            personal_document_id: chunk.personal_document_id,
+            source_title: personalTitleMap.get(chunk.personal_document_id) || 'Personal Document',
+            score: sim,
+          })
+        }
+      }
+    }
+
+    // Rank and select top 5 chunks
+    candidateSources.sort((a, b) => b.score - a.score)
+    const topSources = candidateSources.slice(0, 5)
+
+    const contextText = topSources.length > 0
+      ? topSources
+          .map((src) => `[Source: ${src.source_title}]\n${src.content}`)
+          .join('\n\n---\n\n')
       : 'No relevant documents found.'
 
-    // 5. Build the System Prompt
-    const systemPrompt = `You are a helpful campus assistant for engineering students.
-Answer the student's question strictly using the provided campus notices and private uploaded document context chunks.
-Context: 
-${retrievedContext}
-
-Rules:
-1. If the answer is not in the context, say "I couldn't find that in the current campus notices or your uploaded documents." Do not use outside knowledge.
-2. If citing a date or deadline, explicitly state the name of the source document you found it in.
-3. Keep answers brief and direct.`
-
-    // 6. Save the user's incoming message
+    // 6. Save User message in chat_messages
     await supabase.from('chat_messages').insert({
-      user_id: user.id,
+      conversation_id: conversationId,
       role: 'user',
-      content: lastMessage
+      content: lastMessage,
     })
 
-    // 7. Stream the response back using Vercel AI SDK and Groq
+    // 7. System Prompt with strict grounding
+    const systemPrompt = `You are the Syntheus Academic Intelligence Assistant for university students.
+Answer questions accurately, strictly grounded in the provided institutional documents and the student's personal documents.
+If an answer is not provided in the context, clearly state: "I couldn't find that in the official campus documents or your uploaded files."
+When providing answers, mention the title of the document that provided the information.
+
+Context:
+${contextText}`
+
     const modelMessages = await convertToModelMessages(messages)
 
     const result = streamText({
@@ -325,17 +241,53 @@ Rules:
         console.error('Chat stream error:', error)
       },
       async onFinish({ text }) {
-        const supabase = await createClient()
-        await supabase.from('chat_messages').insert({
-          user_id: user.id,
-          role: 'assistant',
-          content: text
-        })
-      }
+        try {
+          // Save Assistant message
+          const { data: assistantMsg } = await supabase
+            .from('chat_messages')
+            .insert({
+              conversation_id: conversationId,
+              role: 'assistant',
+              content: text,
+            })
+            .select('id')
+            .single()
+
+          // Record message sources in message_sources table
+          if (assistantMsg && topSources.length > 0) {
+            const seenSources = new Set<string>()
+            const sourceRows = []
+
+            for (const src of topSources) {
+              const key = `${src.document_id || ''}-${src.personal_document_id || ''}`
+              if (!seenSources.has(key)) {
+                seenSources.add(key)
+                sourceRows.push({
+                  message_id: assistantMsg.id,
+                  document_id: src.document_id,
+                  personal_document_id: src.personal_document_id,
+                  source_title: src.source_title,
+                })
+              }
+            }
+
+            if (sourceRows.length > 0) {
+              await supabase.from('message_sources').insert(sourceRows)
+            }
+          }
+
+          // Update conversation timestamp
+          await supabase
+            .from('chat_conversations')
+            .update({ updated_at: new Date().toISOString() })
+            .eq('id', conversationId)
+        } catch (postErr) {
+          console.error('Error saving assistant message and sources:', postErr)
+        }
+      },
     })
 
     return result.toUIMessageStreamResponse()
-    
   } catch (error: unknown) {
     console.error('Chat API Error:', error)
     return Response.json({ error: getErrorMessage(error) }, { status: 500 })

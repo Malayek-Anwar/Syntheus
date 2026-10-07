@@ -1,66 +1,67 @@
-import { createClient } from '@/utils/supabase/server'
+import { verifyStudentSession } from '@/utils/auth'
+import { redirect } from 'next/navigation'
 import { StudentChat } from '@/components/StudentChat'
-import { normalizeAudience, isAudienceVisibleToStudent } from '@/utils/audience'
 import { generatePersonalizedSuggestions, type SuggestionPrompt } from '@/utils/constants'
 import type { UIMessage } from 'ai'
 
 export default async function StudentChatPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const auth = await verifyStudentSession()
+  if (!auth.authorized || !auth.student) {
+    redirect('/login')
+  }
+
+  const { student, supabase } = auth
+  const now = new Date()
 
   let initialMessages: UIMessage[] = []
   let suggestions: SuggestionPrompt[] = []
 
-  if (user) {
-    const rawDept = user?.user_metadata?.department || 'CSE'
-    const rawSem = user?.user_metadata?.semester || 'Semester 1'
+  // 1. Fetch latest conversation for this student
+  const { data: latestConv } = await supabase
+    .from('chat_conversations')
+    .select('id')
+    .eq('student_id', student.id)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
 
-    const { target_departments: studentDepts, target_semesters: studentSems } = normalizeAudience(rawDept, rawSem)
-    const studentDept = studentDepts[0] || 'CSE'
-    const studentSem = studentSems[0] || 1
+  // 2. Fetch messages if conversation exists, plus personal docs and upcoming events
+  const [messagesRes, personalDocsRes, eventsRes] = await Promise.all([
+    latestConv
+      ? supabase
+          .from('chat_messages')
+          .select('*')
+          .eq('conversation_id', latestConv.id)
+          .order('created_at', { ascending: true })
+      : Promise.resolve({ data: [] }),
+    supabase
+      .from('personal_documents')
+      .select('id, title, created_at')
+      .eq('student_id', student.id)
+      .order('created_at', { ascending: false })
+      .limit(3),
+    supabase
+      .from('academic_events')
+      .select('title, event_type, starts_at')
+      .gte('starts_at', now.toISOString())
+      .order('starts_at', { ascending: true })
+      .limit(5),
+  ])
 
-    // Fetch conversation history, student's personal documents, and recent notices concurrently
-    const [messagesRes, personalDocsRes, noticesRes] = await Promise.all([
-      supabase
-        .from('chat_messages')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true }),
-      supabase
-        .from('personal_documents')
-        .select('id, title, created_at')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(3),
-      supabase
-        .from('documents')
-        .select('*')
-        .eq('is_published', true)
-        .order('created_at', { ascending: false })
-        .limit(10),
-    ])
-
-    if (messagesRes.data) {
-      initialMessages = messagesRes.data.map((msg) => ({
-        id: msg.id,
-        role: msg.role as 'user' | 'assistant' | 'system',
-        parts: [{ type: 'text', text: msg.content }],
-      }))
-    }
-
-    const visibleNotices = (noticesRes.data ?? []).filter((doc) =>
-      isAudienceVisibleToStudent(doc, studentDept, studentSem)
-    )
-
-    suggestions = generatePersonalizedSuggestions({
-      department: studentDept,
-      semester: studentSem,
-      personalDocuments: personalDocsRes.data ?? [],
-      recentNotices: visibleNotices,
-    })
-  } else {
-    suggestions = generatePersonalizedSuggestions()
+  if (messagesRes.data) {
+    initialMessages = messagesRes.data.map((msg) => ({
+      id: msg.id,
+      role: msg.role as 'user' | 'assistant' | 'system',
+      parts: [{ type: 'text', text: msg.content }],
+    }))
   }
+
+  suggestions = generatePersonalizedSuggestions({
+    department: student.department,
+    semester: student.semester,
+    personalDocuments: personalDocsRes.data ?? [],
+    upcomingEvents: eventsRes.data ?? [],
+  })
 
   return (
     <div className="flex-1 flex flex-col h-full min-h-0 bg-gray-50 p-2 sm:p-4 md:p-6 overflow-hidden">

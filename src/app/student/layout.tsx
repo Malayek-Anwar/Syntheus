@@ -1,6 +1,6 @@
 import { StudentShell } from '@/components/StudentShell'
 import { signout } from '@/app/login/actions'
-import { createClient } from '@/utils/supabase/server'
+import { verifyStudentSession } from '@/utils/auth'
 import { redirect } from 'next/navigation'
 
 export default async function StudentLayout({
@@ -8,17 +8,19 @@ export default async function StudentLayout({
 }: {
   children: React.ReactNode
 }) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const auth = await verifyStudentSession()
 
-  if (!user) {
+  if (!auth.authorized || !auth.student) {
     redirect('/login')
   }
 
+  const student = auth.student
+  const deptStr = student.department ? `${student.department} · Sem ${student.semester || 1}` : 'Student'
+
   return (
     <StudentShell
-      userEmail={user.email || ''}
-      userDepartment={user.user_metadata?.department || 'Student'}
+      userEmail={auth.user?.email || student.display_name || ''}
+      userDepartment={deptStr}
       signOutAction={signout}
     >
       {children}

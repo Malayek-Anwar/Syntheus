@@ -1,17 +1,40 @@
 import { login } from './actions'
 import Link from 'next/link'
 import { BrandLogo } from '@/components/BrandLogo'
+import { AccountPendingModal } from '@/components/AccountPendingModal'
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ message: string }>
+  searchParams: Promise<{
+    message?: string
+    pending?: string
+    name?: string
+    roll?: string
+    dept?: string
+    sem?: string
+    sec?: string
+  }>
 }) {
   const resolvedParams = await searchParams
   const message = resolvedParams?.message
+  const isPending = resolvedParams?.pending === 'true' || resolvedParams?.pending === '1'
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 sm:px-6 lg:px-8">
+      {isPending && (
+        <AccountPendingModal
+          isOpen={true}
+          studentDetails={{
+            name: resolvedParams?.name,
+            rollNumber: resolvedParams?.roll,
+            department: resolvedParams?.dept,
+            semester: resolvedParams?.sem,
+            section: resolvedParams?.sec,
+          }}
+        />
+      )}
+
       <div className="w-full max-w-md space-y-8 bg-white p-8 sm:p-10 shadow-sm border border-gray-200 rounded-2xl">
         <div className="flex flex-col items-center justify-center text-center">
           <BrandLogo iconSize="w-10 h-10" textSize="text-3xl" className="justify-center" />

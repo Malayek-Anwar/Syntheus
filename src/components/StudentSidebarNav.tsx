@@ -7,12 +7,13 @@ type NavItem = {
   name: string
   href: string
   exact?: boolean
+  badge?: string
   icon: (props: { className?: string }) => React.ReactNode
 }
 
 const navItems: NavItem[] = [
   {
-    name: 'Home',
+    name: 'Dashboard',
     href: '/student',
     exact: true,
     icon: ({ className }) => (
@@ -31,11 +32,47 @@ const navItems: NavItem[] = [
     ),
   },
   {
-    name: 'Institutional Notices',
+    name: 'Institute Documents',
     href: '/student/notices',
     icon: ({ className }) => (
       <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+      </svg>
+    ),
+  },
+  {
+    name: 'Study Resources',
+    href: '/student/study',
+    icon: ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+      </svg>
+    ),
+  },
+  {
+    name: 'Calendar & Timetable',
+    href: '/student/calendar',
+    icon: ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+      </svg>
+    ),
+  },
+  {
+    name: 'AI Chat',
+    href: '/student/chat',
+    icon: ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+      </svg>
+    ),
+  },
+  {
+    name: 'Personal Vault',
+    href: '/student/my-documents',
+    icon: ({ className }) => (
+      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
       </svg>
     ),
   },
@@ -45,24 +82,6 @@ const navItems: NavItem[] = [
     icon: ({ className }) => (
       <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-      </svg>
-    ),
-  },
-  {
-    name: 'AI Campus Assistant',
-    href: '/student/chat',
-    icon: ({ className }) => (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-      </svg>
-    ),
-  },
-  {
-    name: 'My Documents',
-    href: '/student/my-documents',
-    icon: ({ className }) => (
-      <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
     ),
   },
@@ -83,18 +102,25 @@ export function StudentSidebarNav({ onItemClick }: { onItemClick?: () => void })
             key={item.href}
             href={item.href}
             onClick={() => onItemClick?.()}
-            className={`group flex items-center gap-3 px-3.5 py-2.5 text-sm font-medium rounded-lg transition-all ${
+            className={`group flex items-center justify-between px-3.5 py-2.5 text-xs sm:text-sm font-medium rounded-lg transition-all ${
               isActive
-                ? 'bg-[#e8f3f0] text-[#176b61] font-semibold'
-                : 'text-gray-600 hover:bg-[#f1f5f3] hover:text-gray-900'
+                ? 'bg-[#edf6f3] text-[#176b61] font-semibold border border-[#cce5df]'
+                : 'text-gray-600 hover:bg-[#f1f5f3] hover:text-gray-900 border border-transparent'
             }`}
           >
-            <item.icon
-              className={`w-5 h-5 flex-shrink-0 transition-colors ${
-                isActive ? 'text-[#176b61]' : 'text-gray-400 group-hover:text-gray-600'
-              }`}
-            />
-            <span>{item.name}</span>
+            <div className="flex items-center gap-3">
+              <item.icon
+                className={`w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0 transition-colors ${
+                  isActive ? 'text-[#176b61]' : 'text-gray-400 group-hover:text-gray-600'
+                }`}
+              />
+              <span>{item.name}</span>
+            </div>
+            {item.badge && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-[#176b61] text-white">
+                {item.badge}
+              </span>
+            )}
           </Link>
         )
       })}

@@ -3,6 +3,8 @@
 import React, { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { isNoticeDeadlinePassed } from '@/utils/deadlines'
+import { CATEGORY_META } from '@/utils/constants'
+import type { DocumentCategory } from '@/types/database'
 
 export interface DocumentItem {
   id: string
@@ -46,10 +48,10 @@ const TABS: TabOption[] = [
   { key: 'all', label: 'All Notices' },
   { key: 'deadlines', label: 'Deadlines' },
   { key: 'fee_notice', label: 'Fee & Dues' },
-  { key: 'academic_calendar', label: 'Calendars' },
+  { key: 'academic_calendar', label: 'Calendars & Schedules' },
   { key: 'exam_circular', label: 'Exams' },
   { key: 'holiday_notice', label: 'Holidays' },
-  { key: 'academic_notes', label: 'Notes & Syllabus' },
+  { key: 'academic_notes', label: 'Syllabus & Notes' },
   { key: 'general_notice', label: 'General' },
 ]
 
@@ -96,10 +98,10 @@ export function NoticeFilterFeed({
       }
 
       // Exact or fallback matching for types
-      if (type === 'fee_notice' || titleLower.includes('fee') || categoryLower.includes('fee') || titleLower.includes('dues')) {
+      if (type === 'fee_notice' || categoryLower === 'fees' || titleLower.includes('fee') || categoryLower.includes('fee') || titleLower.includes('dues')) {
         countsMap.fee_notice++
       }
-      if (type === 'academic_calendar' || titleLower.includes('calendar') || titleLower.includes('schedule') || categoryLower.includes('calendar')) {
+      if (type === 'academic_calendar' || categoryLower === 'calendar' || categoryLower === 'schedule' || titleLower.includes('calendar') || titleLower.includes('schedule') || categoryLower.includes('calendar')) {
         countsMap.academic_calendar++
       }
       if (type === 'exam_circular' || titleLower.includes('exam') || titleLower.includes('admit') || categoryLower.includes('exam')) {
@@ -108,7 +110,7 @@ export function NoticeFilterFeed({
       if (type === 'holiday_notice' || titleLower.includes('holiday') || titleLower.includes('closure') || categoryLower.includes('holiday')) {
         countsMap.holiday_notice++
       }
-      if (type === 'academic_notes' || titleLower.includes('note') || titleLower.includes('syllabus') || categoryLower.includes('note')) {
+      if (type === 'academic_notes' || categoryLower === 'syllabus' || categoryLower === 'notes' || titleLower.includes('note') || titleLower.includes('syllabus') || categoryLower.includes('note')) {
         countsMap.academic_notes++
       }
       if (type === 'general_notice' || countsMap[type as FilterTabKey] === undefined) {
@@ -236,8 +238,12 @@ export function NoticeFilterFeed({
       {filteredDocs.length > 0 ? (
         <div className="bg-white rounded-xl shadow-xs border border-[#dfe7e3] overflow-hidden divide-y divide-[#dfe7e3]">
           {filteredDocs.map((doc) => {
+            const catMeta = doc.category && (doc.category in CATEGORY_META)
+              ? CATEGORY_META[doc.category as DocumentCategory]
+              : null
             const docTypeKey = doc.doc_type || 'general_notice'
             const typeMeta = DOC_TYPE_META[docTypeKey] || DOC_TYPE_META.general_notice
+            const badgeLabel = catMeta ? `${catMeta.icon} ${catMeta.label}` : typeMeta.label
             const depts = doc.target_departments && doc.target_departments.length > 0 && !doc.target_departments.includes('All')
               ? doc.target_departments.join(', ')
               : 'Campus Wide'
@@ -250,7 +256,7 @@ export function NoticeFilterFeed({
                 <div className="min-w-0 flex-1 space-y-1.5">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-semibold text-[#176b61]">
-                      {typeMeta.label}
+                      {badgeLabel}
                     </span>
 
                     {doc.priority?.toLowerCase() === 'high' && (
