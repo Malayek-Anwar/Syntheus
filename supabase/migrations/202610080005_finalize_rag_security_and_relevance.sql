@@ -23,8 +23,8 @@ create policy "Admins can manage document chunks"
 on public.document_chunks
 for all
 to authenticated
-using (public.is_admin())
-with check (public.is_admin());
+using (private.is_admin())
+with check (private.is_admin());
 
 alter table public.personal_document_chunks enable row level security;
 revoke all on public.personal_document_chunks from public, anon, authenticated;
@@ -94,6 +94,7 @@ as $$
       )
       and (select private.student_matches_target(
         d.target_departments, d.target_semesters, d.target_sections))
+      and 1 - (c.embedding OPERATOR(extensions.<=>) query_embedding) >= 0.30
   ),
   semantic as (
     select ec.id, row_number() over (
@@ -122,7 +123,6 @@ as $$
          1 - (ec.embedding OPERATOR(extensions.<=>) query_embedding) as similarity,
          fused.rrf_score
   from fused join eligible_chunks ec on ec.id = fused.id
-  where 1 - (ec.embedding OPERATOR(extensions.<=>) query_embedding) >= 0.30
   order by fused.rrf_score desc
   limit least(greatest(match_count, 1), 30);
 $$;
@@ -161,6 +161,7 @@ as $$
     where (select private.is_active_student())
       and pd.student_id = (select auth.uid())
       and pd.status = 'ready'::public.personal_document_status
+      and 1 - (pc.embedding OPERATOR(extensions.<=>) query_embedding) >= 0.30
   ),
   semantic as (
     select ec.id, row_number() over (
@@ -189,7 +190,6 @@ as $$
          1 - (ec.embedding OPERATOR(extensions.<=>) query_embedding) as similarity,
          fused.rrf_score
   from fused join eligible_chunks ec on ec.id = fused.id
-  where 1 - (ec.embedding OPERATOR(extensions.<=>) query_embedding) >= 0.30
   order by fused.rrf_score desc
   limit least(greatest(match_count, 1), 30);
 $$;
