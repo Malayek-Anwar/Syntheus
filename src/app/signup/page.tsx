@@ -48,7 +48,7 @@ function SignupContent() {
     const trimmedRoll = rollNumber.trim()
     const trimmedName = institutionalName.trim()
     const trimmedDept = department.trim()
-    const semesterNum = parseInt(semester.replace(/\\D/g, ''), 10)
+    const semesterNum = parseInt(semester.replace(/\D/g, ''), 10)
     const normalizedSec = normalizeSection(section)
 
     formData.set('email', email)
