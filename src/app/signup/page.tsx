@@ -4,7 +4,7 @@ import { useState, useTransition, Suspense } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { BrandLogo } from '@/components/BrandLogo'
-import { createClient } from '@/utils/supabase/client'
+import { signup } from './actions'
 import { RegistrationPendingModal } from '@/components/RegistrationPendingModal'
 import { normalizeSection } from '@/utils/audience'
 
@@ -44,108 +44,43 @@ function SignupContent() {
     e.preventDefault()
     setErrorMessage(null)
 
+    const formData = new FormData(e.currentTarget)
     const trimmedRoll = rollNumber.trim()
     const trimmedName = institutionalName.trim()
     const trimmedDept = department.trim()
-    const semesterNum = parseInt(semester.replace(/\D/g, ''), 10)
+    const semesterNum = parseInt(semester.replace(/\\D/g, ''), 10)
     const normalizedSec = normalizeSection(section)
 
-    if (!trimmedRoll || !trimmedName || !trimmedDept || !semesterNum) {
+    formData.set('email', email)
+    formData.set('password', password)
+    formData.set('institutional_name', trimmedName)
+    formData.set('roll_number', trimmedRoll)
+    formData.set('department', trimmedDept)
+    formData.set('semester', String(semesterNum))
+    formData.set('section', normalizedSec || '')
+
+    if (!trimmedRoll || !trimmedName || !trimmedDept || !Number.isInteger(semesterNum)) {
       setErrorMessage('Please fill in all required academic fields.')
       return
     }
 
     startTransition(async () => {
-      try {
-        const supabase = createClient()
+      const result = await signup(formData)
 
-        // 1. Sign up user via Supabase Auth
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              institutional_name: trimmedName,
-              roll_number: trimmedRoll,
-              department: trimmedDept,
-              semester: semesterNum,
-              section: normalizedSec,
-            },
-          },
-        })
-
-        if (authError) {
-          setErrorMessage(authError.message)
-          return
-        }
-
-        const user = authData.user
-        if (!user) {
-          setErrorMessage('Failed to initialize account. Please try again.')
-          return
-        }
-
-        // Check if user already existed (empty identities check)
-        if (user.identities && user.identities.length === 0) {
-          setErrorMessage('An account with this email address already exists. Please sign in instead.')
-          return
-        }
-
-        // 2. Check if student row already exists for this user
-        const { data: existingStudent } = await supabase
-          .from('students')
-          .select('id, roll_number, account_status')
-          .eq('id', user.id)
-          .maybeSingle()
-
-        if (!existingStudent) {
-          // 3. Create initial pending claim in students table
-          const { error: insertError } = await supabase
-            .from('students')
-            .insert({
-              id: user.id,
-              roll_number: trimmedRoll,
-              account_status: 'pending',
-              institutional_name: trimmedName,
-              display_name: trimmedName,
-              department: trimmedDept,
-              semester: semesterNum,
-              section: normalizedSec,
-            })
-
-          if (insertError) {
-            // Check for unique roll number conflict
-            if (
-              insertError.code === '23505' ||
-              insertError.message?.toLowerCase().includes('unique') ||
-              insertError.message?.toLowerCase().includes('roll_number')
-            ) {
-              setErrorMessage(
-                `Roll number "${trimmedRoll}" is already registered. If you already have an account, please sign in.`
-              )
-              return
-            }
-            setErrorMessage(`Registration error: ${insertError.message}`)
-            return
-          }
-        }
-
-        // 4. Update modal details and activate verification pop-up
-        setModalDetails({
-          name: trimmedName,
-          rollNumber: trimmedRoll,
-          department: trimmedDept,
-          semester: semesterNum,
-          section: normalizedSec,
-          email: email,
-        })
-
-        // Sign out session so pending unverified account doesn't retain access
-        await supabase.auth.signOut()
-        setShowModal(true)
-      } catch (err: unknown) {
-        setErrorMessage(err instanceof Error ? err.message : 'An unexpected error occurred.')
+      if (!result.ok) {
+        setErrorMessage(result.message)
+        return
       }
+
+      setModalDetails({
+        name: result.name,
+        rollNumber: result.rollNumber,
+        department: result.department,
+        semester: result.semester,
+        section: result.section,
+        email: result.email,
+      })
+      setShowModal(true)
     })
   }
 
