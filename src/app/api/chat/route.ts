@@ -174,10 +174,7 @@ export async function POST(req: Request) {
 
     const resolvedConversationId = conversationId
 
-    const { error: userMessageError } = await supabase
-      .from('chat_messages')
-      .insert({ conversation_id: resolvedConversationId, role: 'user', content: lastMessage })
-    if (userMessageError) throw userMessageError
+    const userMessageId = crypto.randomUUID()
 
     const queryEmbedding = await generateEmbedding(lastMessage)
 
@@ -256,6 +253,8 @@ export async function POST(req: Request) {
         'finalize_student_chat_response',
         {
           p_conversation_id: resolvedConversationId,
+          p_user_message_id: userMessageId,
+          p_user_content: lastMessage,
           p_assistant_message_id: assistantMessageId,
           p_content: NO_ANSWER_RESPONSE,
           p_sources: [],
@@ -308,7 +307,10 @@ export async function POST(req: Request) {
     if (historyError) throw historyError
 
     const modelMessages = await convertToModelMessages(
-      toPersistedMessages([...(persistedMessages ?? [])].reverse()),
+      toPersistedMessages([
+        ...(persistedMessages ?? []),
+        { id: userMessageId, role: 'user', content: lastMessage },
+      ].reverse()),
     )
 
     const systemPrompt = `You are the Syntheus Academic Intelligence Assistant for university students.
