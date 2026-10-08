@@ -70,12 +70,7 @@ create policy "Admins have full access to documents"
   to authenticated
   using ((auth.jwt()->'app_metadata'->>'role') = 'admin');
 
--- Policies for public.document_chunks
-create policy "Authenticated users can query document chunks"
-  on public.document_chunks for select
-  to authenticated
-  using (true);
-
+-- Institutional chunks must be retrieved through the authorized RPCs.
 create policy "Admins can manage document chunks"
   on public.document_chunks for all
   to authenticated

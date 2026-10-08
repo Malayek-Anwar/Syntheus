@@ -1,84 +1,7 @@
--- Syntheus V1 Phase 1: RAG retrieval boundary + personal chunk owner writes.
--- Institutional document_chunks intentionally remain unreadable directly by students.
-
-create schema if not exists private;
-revoke all on schema private from public, anon, authenticated;
-grant usage on schema private to authenticated;
-
-create or replace function private.is_active_student()
-returns boolean
-language sql
-stable
-security definer
-set search_path = ''
-as $$
-  select exists (
-    select 1
-    from public.students s
-    where s.id = (select auth.uid())
-      and s.account_status = 'active'::public.account_status
-  );
-$$;
-
-revoke all on function private.is_active_student() from public, anon;
-grant execute on function private.is_active_student() to authenticated;
-
-create or replace function private.student_matches_target(
-  target_departments text[],
-  target_semesters smallint[],
-  target_sections text[]
-)
-returns boolean
-language sql
-stable
-security definer
-set search_path = ''
-as $$
-  select exists (
-    select 1
-    from public.students s
-    where s.id = (select auth.uid())
-      and s.account_status = 'active'::public.account_status
-      and (
-        coalesce(cardinality(target_departments), 0) = 0
-        or 'ALL' = any(array(
-          select upper(btrim(value))
-          from unnest(target_departments) as target(value)
-        ))
-        or (
-          s.department is not null
-          and upper(btrim(s.department)) = any(array(
-            select upper(btrim(value))
-            from unnest(target_departments) as target(value)
-          ))
-        )
-      )
-      and (
-        coalesce(cardinality(target_semesters), 0) = 0
-        or s.semester = any(target_semesters)
-      )
-      and (
-        coalesce(cardinality(target_sections), 0) = 0
-        or 'ALL' = any(array(
-          select upper(btrim(value))
-          from unnest(target_sections) as target(value)
-        ))
-        or (
-          s.section is not null
-          and upper(btrim(s.section)) = any(array(
-            select upper(btrim(value))
-            from unnest(target_sections) as target(value)
-          ))
-        )
-      )
-  );
-$$;
-
-revoke all on function private.student_matches_target(text[], smallint[], text[]) from public, anon;
-grant execute on function private.student_matches_target(text[], smallint[], text[]) to authenticated;
-
+-- Enforce the final institutional chunk access boundary, including on databases
+-- where earlier RAG migrations have already been applied.
 alter table public.document_chunks enable row level security;
-revoke all on public.document_chunks from anon;
+revoke all on public.document_chunks from public, anon;
 grant select, insert, update, delete on public.document_chunks to authenticated;
 
 do $$
@@ -130,7 +53,8 @@ to authenticated
 using (
   (select private.is_active_student())
   and exists (
-    select 1 from public.personal_documents pd
+    select 1
+    from public.personal_documents pd
     where pd.id = personal_document_chunks.personal_document_id
       and pd.student_id = (select auth.uid())
       and pd.status = 'ready'::public.personal_document_status
@@ -203,10 +127,12 @@ as $$
   limit least(greatest(match_count, 1), 30);
 $$;
 
-revoke execute on function public.match_student_institutional_chunks(text, extensions.vector, integer, boolean)
-from public, anon;
-grant execute on function public.match_student_institutional_chunks(text, extensions.vector, integer, boolean)
-to authenticated;
+revoke execute on function public.match_student_institutional_chunks(
+  text, extensions.vector, integer, boolean
+) from public, anon;
+grant execute on function public.match_student_institutional_chunks(
+  text, extensions.vector, integer, boolean
+) to authenticated;
 
 create or replace function public.match_student_personal_chunks(
   query_text text,
@@ -268,14 +194,9 @@ as $$
   limit least(greatest(match_count, 1), 30);
 $$;
 
-revoke execute on function public.match_student_personal_chunks(text, extensions.vector, integer)
-from public, anon;
-grant execute on function public.match_student_personal_chunks(text, extensions.vector, integer)
-to authenticated;
-
-revoke execute on function public.match_document_chunks(extensions.vector, integer, uuid[])
-from public, anon, authenticated;
-revoke execute on function public.match_personal_document_chunks(extensions.vector, uuid, integer, uuid[])
-from public, anon, authenticated;
-revoke execute on function public.match_documents_hybrid(extensions.vector, text, text, integer, integer, integer)
-from public, anon, authenticated;
+revoke execute on function public.match_student_personal_chunks(
+  text, extensions.vector, integer
+) from public, anon;
+grant execute on function public.match_student_personal_chunks(
+  text, extensions.vector, integer
+) to authenticated;

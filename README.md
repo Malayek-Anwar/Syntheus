@@ -214,10 +214,15 @@ Execute the canonical migrations in order in your Supabase SQL Editor:
    - `supabase/migrations/202610080002_trusted_personal_document_ingestion.sql`
    - `supabase/migrations/202610080003_private_document_storage.sql`
    - `supabase/migrations/202610080004_atomic_chat_finalization.sql`
+   - `supabase/migrations/202610080005_finalize_rag_security_and_relevance.sql`
 
 The storage migration creates or enforces the private `institutional-documents` and `personal-documents` buckets, PDF-only MIME restrictions, and the 25 MiB file limit. It also applies owner/targeting-scoped storage policies. Document views use 15-minute signed URLs; do not make either bucket public or use permanent public URLs.
 
+The final RAG migration removes any permissive institutional chunk policies, restores admin-only direct chunk access, and applies the 0.30 similarity gate in both authorized retrieval RPCs before RRF ordering and limiting. Apply it even if earlier RAG migrations have already been applied.
+
 The chat finalization migration atomically saves assistant messages, authorized source-title snapshots, and conversation timestamps. Apply it before using the updated chat route.
+
+After applying the migrations, run `supabase/tests/phase1_rag_security.sql` in the SQL Editor for read-only catalog checks of chunk RLS, anonymous access, owner policy presence, and the SQL relevance gates. Also verify personal upload and cross-student isolation using two dedicated active test accounts; do not use production student accounts for adversarial tests.
 
 ### 5. Running the Application
 ```bash

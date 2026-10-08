@@ -10,7 +10,6 @@ grant select, insert, update, delete on all tables in schema public to authentic
 grant all on all sequences in schema public to authenticated;
 
 grant select on public.documents to anon;
-grant select on public.document_chunks to anon;
 grant select on public.academic_events to anon;
 grant select on public.timetables to anon;
 grant select on public.timetable_entries to anon;
@@ -32,13 +31,24 @@ create policy "Admins can manage documents"
 
 -- 3. Document Chunks RLS Policies
 alter table public.document_chunks enable row level security;
-drop policy if exists "Allow reading document chunks" on public.document_chunks;
-create policy "Allow reading document chunks"
-  on public.document_chunks for select
-  to authenticated, anon
-  using (true);
+revoke all on public.document_chunks from public, anon;
+grant select, insert, update, delete on public.document_chunks to authenticated;
 
-drop policy if exists "Admins can manage document chunks" on public.document_chunks;
+do $$
+declare
+  policy_name text;
+begin
+  for policy_name in
+    select policyname
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'document_chunks'
+  loop
+    execute format('drop policy if exists %I on public.document_chunks', policy_name);
+  end loop;
+end;
+$$;
+
 create policy "Admins can manage document chunks"
   on public.document_chunks for all
   to authenticated
@@ -47,33 +57,101 @@ create policy "Admins can manage document chunks"
 
 -- 4. Personal Documents RLS Policies
 alter table public.personal_documents enable row level security;
-drop policy if exists "Students can manage own personal documents" on public.personal_documents;
-create policy "Students can manage own personal documents"
-  on public.personal_documents for all
-  to authenticated
-  using (student_id = auth.uid())
-  with check (student_id = auth.uid());
+revoke all on public.personal_documents from public, anon, authenticated;
+grant select, insert, delete on public.personal_documents to authenticated;
+grant all on public.personal_documents to service_role;
+
+do $$
+declare
+  policy_name text;
+begin
+  for policy_name in
+    select policyname
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'personal_documents'
+  loop
+    execute format('drop policy if exists %I on public.personal_documents', policy_name);
+  end loop;
+end;
+$$;
+
+create policy "personal_documents_select_owner"
+on public.personal_documents
+for select
+to authenticated
+using (
+  student_id = (select auth.uid())
+  and exists (
+    select 1 from public.students s
+    where s.id = (select auth.uid())
+      and s.account_status = 'active'::public.account_status
+  )
+);
+
+create policy "personal_documents_insert_processing_owner"
+on public.personal_documents
+for insert
+to authenticated
+with check (
+  student_id = (select auth.uid())
+  and status = 'processing'::public.personal_document_status
+  and exists (
+    select 1 from public.students s
+    where s.id = (select auth.uid())
+      and s.account_status = 'active'::public.account_status
+  )
+);
+
+create policy "personal_documents_delete_owner"
+on public.personal_documents
+for delete
+to authenticated
+using (
+  student_id = (select auth.uid())
+  and exists (
+    select 1 from public.students s
+    where s.id = (select auth.uid())
+      and s.account_status = 'active'::public.account_status
+  )
+);
 
 -- 5. Personal Document Chunks RLS Policies
 alter table public.personal_document_chunks enable row level security;
-drop policy if exists "Students can manage own personal document chunks" on public.personal_document_chunks;
-create policy "Students can manage own personal document chunks"
-  on public.personal_document_chunks for all
-  to authenticated
-  using (
-    exists (
-      select 1 from public.personal_documents pd
-      where pd.id = personal_document_chunks.personal_document_id
-        and pd.student_id = auth.uid()
-    )
+revoke all on public.personal_document_chunks from public, anon, authenticated;
+grant select on public.personal_document_chunks to authenticated;
+grant all on public.personal_document_chunks to service_role;
+
+do $$
+declare
+  policy_name text;
+begin
+  for policy_name in
+    select policyname
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'personal_document_chunks'
+  loop
+    execute format('drop policy if exists %I on public.personal_document_chunks', policy_name);
+  end loop;
+end;
+$$;
+
+create policy "personal_document_chunks_select_owner"
+on public.personal_document_chunks
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.personal_documents pd
+    join public.students s on s.id = pd.student_id
+    where pd.id = personal_document_chunks.personal_document_id
+      and pd.student_id = (select auth.uid())
+      and pd.status = 'ready'::public.personal_document_status
+      and s.account_status = 'active'::public.account_status
   )
-  with check (
-    exists (
-      select 1 from public.personal_documents pd
-      where pd.id = personal_document_chunks.personal_document_id
-        and pd.student_id = auth.uid()
-    )
-  );
+);
 
 -- 6. Chat Conversations, Messages, and Sources
 alter table public.chat_conversations enable row level security;
