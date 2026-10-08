@@ -9,7 +9,7 @@ declare
   institutional_impl regprocedure :=
     to_regprocedure('private.match_student_institutional_chunks(text,extensions.vector,integer,boolean)');
   personal_impl regprocedure :=
-    to_regprocedure('private.match_student_personal_chunks(text,extensions.vector)');
+    to_regprocedure('private.match_student_personal_chunks(text,extensions.vector,integer)');
   finalize_rpc regprocedure :=
     to_regprocedure('public.finalize_student_chat_response(uuid,uuid,text,uuid,text,jsonb,boolean)');
 begin
