@@ -6,6 +6,12 @@ declare
     to_regprocedure('public.match_student_institutional_chunks(text,extensions.vector,integer,boolean)');
   personal_rpc regprocedure :=
     to_regprocedure('public.match_student_personal_chunks(text,extensions.vector,integer)');
+  institutional_impl regprocedure :=
+    to_regprocedure('private.match_student_institutional_chunks(text,extensions.vector,integer,boolean)');
+  personal_impl regprocedure :=
+    to_regprocedure('private.match_student_personal_chunks(text,extensions.vector)');
+  finalize_rpc regprocedure :=
+    to_regprocedure('public.finalize_student_chat_response(uuid,uuid,text,uuid,text,jsonb,boolean)');
 begin
   if not coalesce((
     select c.relrowsecurity
@@ -47,12 +53,25 @@ begin
     raise exception 'The personal retrieval RPC is executable by anon';
   end if;
 
-  if position('>= 0.30' in pg_get_functiondef(institutional_rpc)) = 0 then
-    raise exception 'The institutional retrieval RPC is missing the 0.30 gate';
+  if institutional_impl is null or position('>= 0.30' in pg_get_functiondef(institutional_impl)) = 0 then
+    raise exception 'The institutional retrieval implementation is missing the 0.30 gate';
   end if;
 
-  if position('>= 0.30' in pg_get_functiondef(personal_rpc)) = 0 then
-    raise exception 'The personal retrieval RPC is missing the 0.30 gate';
+  if personal_impl is null or position('>= 0.30' in pg_get_functiondef(personal_impl)) = 0 then
+    raise exception 'The personal retrieval implementation is missing the 0.30 gate';
+  end if;
+
+  if finalize_rpc is null then
+    raise exception 'The atomic chat finalization RPC is missing';
+  end if;
+
+  if exists (
+    select 1
+    from pg_proc
+    where oid in (institutional_rpc, personal_rpc, finalize_rpc)
+      and prosecdef
+  ) then
+    raise exception 'An exposed Phase 1 RPC is still SECURITY DEFINER';
   end if;
 
   if not exists (
