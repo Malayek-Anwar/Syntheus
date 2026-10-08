@@ -2,6 +2,7 @@ import { verifyStudentSession } from '@/utils/auth'
 import { redirect } from 'next/navigation'
 import { StudentChat } from '@/components/StudentChat'
 import { generatePersonalizedSuggestions, type SuggestionPrompt } from '@/utils/constants'
+import { isDocumentVisibleToStudent } from '@/utils/audience'
 import type { UIMessage } from 'ai'
 
 export default async function StudentChatPage() {
@@ -25,8 +26,8 @@ export default async function StudentChatPage() {
     .limit(1)
     .maybeSingle()
 
-  // 2. Fetch messages if conversation exists, plus personal docs and upcoming events
-  const [messagesRes, personalDocsRes, eventsRes] = await Promise.all([
+  // 2. Fetch messages if conversation exists, plus personal docs, events, and institutional documents
+  const [messagesRes, personalDocsRes, eventsRes, docsRes] = await Promise.all([
     latestConv
       ? supabase
           .from('chat_messages')
@@ -39,13 +40,19 @@ export default async function StudentChatPage() {
       .select('id, title, created_at')
       .eq('student_id', student.id)
       .order('created_at', { ascending: false })
-      .limit(3),
+      .limit(5),
     supabase
       .from('academic_events')
       .select('title, event_type, starts_at')
       .gte('starts_at', now.toISOString())
       .order('starts_at', { ascending: true })
       .limit(5),
+    supabase
+      .from('documents')
+      .select('id, title, category, description, target_departments, target_semesters, target_sections, expires_at, created_at')
+      .in('status', ['published', 'archived'])
+      .order('created_at', { ascending: false })
+      .limit(50),
   ])
 
   if (messagesRes.data) {
@@ -56,9 +63,19 @@ export default async function StudentChatPage() {
     }))
   }
 
+  // Filter institutional documents visible to this student based on targeting
+  const visibleInstitutionalDocs = (docsRes.data ?? []).filter((doc) =>
+    isDocumentVisibleToStudent(doc, {
+      department: student.department,
+      semester: student.semester,
+      section: student.section,
+    })
+  )
+
   suggestions = generatePersonalizedSuggestions({
     department: student.department,
     semester: student.semester,
+    institutionalDocuments: visibleInstitutionalDocs,
     personalDocuments: personalDocsRes.data ?? [],
     upcomingEvents: eventsRes.data ?? [],
   })

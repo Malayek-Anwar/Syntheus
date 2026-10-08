@@ -83,6 +83,11 @@ export type SuggestionPrompt = {
 export type SuggestionContext = {
   department?: string | null
   semester?: number | string | null
+  institutionalDocuments?: Array<{
+    title: string
+    category?: string | null
+    description?: string | null
+  }>
   personalDocuments?: Array<{ title: string }>
   upcomingEvents?: Array<{
     title: string
@@ -105,28 +110,64 @@ export function generatePersonalizedSuggestions(ctx?: SuggestionContext): Sugges
   if (ctx?.personalDocuments && ctx.personalDocuments.length > 0) {
     for (const doc of ctx.personalDocuments.slice(0, 2)) {
       const cleanTitle = doc.title.replace(/\.pdf$/i, '').trim()
-      const shortTitle = cleanTitle.length > 18 ? cleanTitle.slice(0, 16) + '...' : cleanTitle
+      const shortTitle = cleanTitle.length > 20 ? cleanTitle.slice(0, 18) + '...' : cleanTitle
       suggestions.push({
         label: `📄 ${shortTitle}`,
-        query: `What are the important details and clauses in my uploaded document "${cleanTitle}"?`,
+        query: `What are the important details and takeaways in my uploaded file "${cleanTitle}"?`,
         description: `Query your private file: ${shortTitle}`,
       })
     }
   }
 
-  // 2. Upcoming events prioritization
-  if (ctx?.upcomingEvents && ctx.upcomingEvents.length > 0) {
-    const event = ctx.upcomingEvents[0]
-    const cleanTitle = event.title.replace(/\.pdf$/i, '').trim()
-    const shortTitle = cleanTitle.length > 18 ? cleanTitle.slice(0, 16) + '...' : cleanTitle
-    suggestions.push({
-      label: `⏳ ${shortTitle}`,
-      query: `What are the details and key dates for "${cleanTitle}"?`,
-      description: `Check upcoming event details`,
-    })
+  // 2. Curated institutional & study documents (the actual uploaded campus content)
+  if (ctx?.institutionalDocuments && ctx.institutionalDocuments.length > 0) {
+    for (const doc of ctx.institutionalDocuments.slice(0, 3)) {
+      const cleanTitle = doc.title.replace(/\.pdf$/i, '').trim()
+      const shortTitle = cleanTitle.length > 20 ? cleanTitle.slice(0, 18) + '...' : cleanTitle
+      const cat = (doc.category || '').toLowerCase()
+
+      let icon = '📢'
+      let query = `Summarize the instructions and key points from "${cleanTitle}"`
+
+      if (['notes', 'reference_material', 'syllabus'].includes(cat)) {
+        icon = '📓'
+        query = `Explain the key topics and concepts covered in "${cleanTitle}"`
+      } else if (['question_paper', 'question_bank', 'exam'].includes(cat) || cleanTitle.toLowerCase().includes('exam')) {
+        icon = '📝'
+        query = `What are the examination details, dates, and instructions in "${cleanTitle}"?`
+      } else if (['fees'].includes(cat) || cleanTitle.toLowerCase().includes('fee')) {
+        icon = '💳'
+        query = `What are the fee payment amounts, deadlines, and instructions in "${cleanTitle}"?`
+      } else if (['schedule', 'calendar'].includes(cat) || cleanTitle.toLowerCase().includes('timetable')) {
+        icon = '📅'
+        query = `What are the schedule timings and milestones in "${cleanTitle}"?`
+      } else if (['assignment'].includes(cat) || cleanTitle.toLowerCase().includes('assignment')) {
+        icon = '📋'
+        query = `What are the assignment requirements, deadlines, and instructions in "${cleanTitle}"?`
+      }
+
+      suggestions.push({
+        label: `${icon} ${shortTitle}`,
+        query,
+        description: doc.description || `Ask about ${cleanTitle}`,
+      })
+    }
   }
 
-  // 3. Department & Semester specific academic schedule / lab suggestions
+  // 3. Upcoming academic events prioritization
+  if (ctx?.upcomingEvents && ctx.upcomingEvents.length > 0) {
+    for (const event of ctx.upcomingEvents.slice(0, 2)) {
+      const cleanTitle = event.title.replace(/\.pdf$/i, '').trim()
+      const shortTitle = cleanTitle.length > 20 ? cleanTitle.slice(0, 18) + '...' : cleanTitle
+      suggestions.push({
+        label: `⏳ ${shortTitle}`,
+        query: `What are the details, timings, and instructions for "${cleanTitle}"?`,
+        description: `Check upcoming event details`,
+      })
+    }
+  }
+
+  // 4. Department & Semester specific academic suggestions (fallbacks)
   suggestions.push({
     label: `🔬 ${dept} ${sem} Labs`,
     query: `Show ${dept} ${sem} lab schedule and practical timetable`,
@@ -139,22 +180,17 @@ export function generatePersonalizedSuggestions(ctx?: SuggestionContext): Sugges
     description: `Exam schedule & syllabus updates`,
   })
 
-  // 4. Fallback circulars
-  if (suggestions.length < 4) {
-    suggestions.push({
-      label: `💳 ${sem} Fees`,
-      query: `Are there any fee payment or registration deadlines for ${sem}?`,
-      description: `Tuition dues and registration`,
-    })
-  }
+  suggestions.push({
+    label: `💳 ${sem} Fees`,
+    query: `Are there any fee payment or registration deadlines for ${sem}?`,
+    description: `Tuition dues and registration`,
+  })
 
-  if (suggestions.length < 4) {
-    suggestions.push({
-      label: `📢 ${dept} Circulars`,
-      query: `What are the latest announcements and circulars for ${dept} students?`,
-      description: `Official department notices`,
-    })
-  }
+  suggestions.push({
+    label: `📢 ${dept} Circulars`,
+    query: `What are the latest announcements and circulars for ${dept} students?`,
+    description: `Official department notices`,
+  })
 
   const seenQueries = new Set<string>()
   const finalPrompts: SuggestionPrompt[] = []
