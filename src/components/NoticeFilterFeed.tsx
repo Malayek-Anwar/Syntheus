@@ -18,7 +18,6 @@ export interface DocumentItem {
   audience?: string | null
   target_departments?: string[] | null
   target_semesters?: number[] | null
-  file_url: string
   created_at: string
 }
 

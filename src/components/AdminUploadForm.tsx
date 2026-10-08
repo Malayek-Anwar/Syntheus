@@ -4,6 +4,7 @@ import { useState, useRef } from 'react'
 import {
   parsePDF,
   publishDocument,
+  discardProcessingDocument,
   type ExtractedData,
   type CandidateEvent,
   type CandidateTimetable,
@@ -30,6 +31,8 @@ export function AdminUploadForm() {
   const [selectedSections, setSelectedSections] = useState<string>('')
   const [candidateEvents, setCandidateEvents] = useState<CandidateEvent[]>([])
   const [candidateTimetable, setCandidateTimetable] = useState<CandidateTimetable | null>(null)
+  const [approveCandidateEvents, setApproveCandidateEvents] = useState(false)
+  const [approveCandidateTimetable, setApproveCandidateTimetable] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const router = useRouter()
@@ -76,6 +79,8 @@ export function AdminUploadForm() {
       setSelectedSections(result.data.target_sections?.join(', ') || '')
       setCandidateEvents(result.data.candidate_events || [])
       setCandidateTimetable(result.data.candidate_timetable || null)
+      setApproveCandidateEvents(false)
+      setApproveCandidateTimetable(false)
     } catch (err) {
       setError(getErrorMessage(err))
     } finally {
@@ -126,6 +131,7 @@ export function AdminUploadForm() {
         : null
 
       const result = await publishDocument({
+        documentId: extractedData.documentId,
         title: (formData.get('title') as string) || extractedData.title,
         description: (formData.get('description') as string) || extractedData.description,
         category: selectedCategory,
@@ -134,12 +140,8 @@ export function AdminUploadForm() {
         target_semesters: targetSems,
         target_sections: targetSecs,
         expires_at: (formData.get('expires_at') as string) || extractedData.expires_at || null,
-        storagePath: extractedData.storagePath,
-        storageBucket: extractedData.storageBucket,
-        fileSize: extractedData.fileSize,
-        rawText: extractedData.rawText,
-        candidate_events: candidateEvents,
-        candidate_timetable: candidateTimetable,
+        candidate_events: approveCandidateEvents ? candidateEvents : [],
+        candidate_timetable: approveCandidateTimetable ? candidateTimetable : null,
         isDraft,
       })
 
@@ -151,7 +153,7 @@ export function AdminUploadForm() {
       setSuccessMessage(
         isDraft
           ? 'Document saved as draft (hidden from students).'
-          : 'Document published, chunked, and vectorized with structured intelligence!'
+          : 'Reviewed document published with approved structured data.'
       )
       setExtractedData(null)
       setFile(null)
@@ -359,7 +361,14 @@ export function AdminUploadForm() {
                 <span className="text-xs font-bold text-gray-800">
                   📅 Extracted Academic Events ({candidateEvents.length})
                 </span>
-                <span className="text-[10px] text-gray-500">Will be saved to structured Calendar</span>
+                <label className="flex items-center gap-1.5 text-[10px] text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={approveCandidateEvents}
+                    onChange={(e) => setApproveCandidateEvents(e.target.checked)}
+                  />
+                  Approve and add to Calendar
+                </label>
               </div>
               <div className="space-y-1.5">
                 {candidateEvents.map((ev, idx) => (
@@ -377,15 +386,66 @@ export function AdminUploadForm() {
             </div>
           )}
 
+          {candidateTimetable && (
+            <div className="p-3 rounded-lg border border-gray-200 bg-gray-50/60 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold text-gray-800">
+                    Suggested Timetable: {candidateTimetable.name} ({candidateTimetable.entries.length} entries)
+                  </p>
+                  <p className="text-[10px] text-gray-500">
+                    {candidateTimetable.valid_from}
+                    {candidateTimetable.valid_until ? ` to ${candidateTimetable.valid_until}` : ''}
+                  </p>
+                </div>
+                <label className="flex shrink-0 items-center gap-1.5 text-[10px] text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={approveCandidateTimetable}
+                    onChange={(e) => setApproveCandidateTimetable(e.target.checked)}
+                  />
+                  Approve and add
+                </label>
+              </div>
+              <div className="max-h-32 overflow-auto rounded border border-gray-200 bg-white">
+                {candidateTimetable.entries.map((entry, index) => (
+                  <p key={`${entry.day_of_week}-${entry.start_time}-${index}`} className="px-2 py-1 text-[10px] text-gray-600 border-b last:border-b-0">
+                    Day {entry.day_of_week}, {entry.start_time}–{entry.end_time}: {entry.subject}
+                    {entry.room ? ` · ${entry.room}` : ''}
+                    {entry.instructor ? ` · ${entry.instructor}` : ''}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
           {error && <p className="text-red-600 text-xs font-medium">{error}</p>}
 
           {/* Action buttons */}
           <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
             <button
               type="button"
-              onClick={() => {
-                setExtractedData(null)
-                setFile(null)
+              disabled={isLoading}
+              onClick={async () => {
+                setIsLoading(true)
+                setError(null)
+                try {
+                  const result = await discardProcessingDocument(extractedData.documentId)
+                  if (!result.success) {
+                    setError(result.error || 'Failed to discard processing document')
+                    return
+                  }
+                  setExtractedData(null)
+                  setFile(null)
+                  setCandidateEvents([])
+                  setCandidateTimetable(null)
+                  setApproveCandidateEvents(false)
+                  setApproveCandidateTimetable(false)
+                } catch (err) {
+                  setError(getErrorMessage(err))
+                } finally {
+                  setIsLoading(false)
+                }
               }}
               className="text-xs font-semibold text-gray-600 hover:text-gray-800 px-3 py-1.5 cursor-pointer"
             >

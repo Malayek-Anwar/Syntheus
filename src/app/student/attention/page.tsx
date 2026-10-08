@@ -148,7 +148,6 @@ export default async function StudentAttentionPage({
               deadline={doc.expires_at}
               target_departments={doc.target_departments}
               target_semesters={doc.target_semesters}
-              file_url={doc.storage_path}
               isCompleted={view === 'completed'}
             />
           ))}

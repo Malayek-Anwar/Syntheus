@@ -17,7 +17,7 @@ export default async function AdminDashboard() {
   const [docsRes, studentsRes] = await Promise.all([
     supabase
       .from('documents')
-      .select('*')
+      .select('id, title, description, category, status, tracks_completion, target_departments, target_semesters, target_sections, expires_at, created_at')
       .order('created_at', { ascending: false }),
     supabase
       .from('students')

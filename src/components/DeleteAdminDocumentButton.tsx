@@ -6,7 +6,7 @@ import { deletePublishedDocument } from '@/app/admin/actions'
 import { ConfirmModal } from '@/components/ConfirmModal'
 import { getErrorMessage } from '@/utils/errors'
 
-export function DeleteAdminDocumentButton({ id, fileUrl }: { id: string, fileUrl: string }) {
+export function DeleteAdminDocumentButton({ id }: { id: string }) {
   const [isDeleting, setIsDeleting] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -17,7 +17,7 @@ export function DeleteAdminDocumentButton({ id, fileUrl }: { id: string, fileUrl
     setError(null)
 
     try {
-      const result = await deletePublishedDocument(id, fileUrl)
+      const result = await deletePublishedDocument(id)
       
       if (!result.success) {
         setError(result.error || 'Failed to delete campus document')

@@ -27,6 +27,8 @@ export const ALL_DOCUMENT_CATEGORIES: DocumentCategory[] = [
   ...STUDY_CATEGORIES,
 ]
 
+export const MAX_PDF_UPLOAD_SIZE_BYTES = 25 * 1024 * 1024
+
 export const CATEGORY_META: Record<DocumentCategory, { label: string; group: 'institute' | 'study'; icon: string }> = {
   // Institute
   notice: { label: 'Notice', group: 'institute', icon: '📢' },

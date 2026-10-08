@@ -292,7 +292,7 @@ export function AdminDocumentDirectory({ documents = [] }: AdminDocumentDirector
                     </button>
                   )}
 
-                  <DeleteAdminDocumentButton id={doc.id} fileUrl={doc.storage_path} />
+                  <DeleteAdminDocumentButton id={doc.id} />
                 </div>
               </div>
             )

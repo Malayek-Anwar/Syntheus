@@ -3,7 +3,7 @@ import { verifyStudentSession } from '@/utils/auth'
 import { redirect } from 'next/navigation'
 import { PersonalUploadForm } from '@/components/PersonalUploadForm'
 import { DeleteDocumentButton } from '@/components/DeleteDocumentButton'
-import { getPersonalSignedUrl } from '@/utils/storage'
+import { getPersonalSignedUrl, SIGNED_URL_TTL_SECONDS } from '@/utils/storage'
 
 export default async function MyDocumentsPage() {
   const auth = await verifyStudentSession()
@@ -23,7 +23,7 @@ export default async function MyDocumentsPage() {
   // Generate secure time-limited signed URLs for viewing private documents
   const documents = await Promise.all(
     (rawDocuments ?? []).map(async (doc) => {
-      const viewUrl = (await getPersonalSignedUrl(supabase, doc.storage_path, 3600)) || ''
+      const viewUrl = (await getPersonalSignedUrl(supabase, doc.storage_path, SIGNED_URL_TTL_SECONDS)) || ''
       return {
         ...doc,
         view_url: viewUrl,
@@ -96,7 +96,7 @@ export default async function MyDocumentsPage() {
                         View
                       </a>
                     )}
-                    <DeleteDocumentButton id={doc.id} fileUrl={doc.storage_path} />
+                    <DeleteDocumentButton id={doc.id} />
                   </div>
                 </div>
               ))}

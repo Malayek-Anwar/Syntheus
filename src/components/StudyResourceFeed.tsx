@@ -13,7 +13,6 @@ export interface StudyItem {
   target_departments?: string[] | null
   target_semesters?: number[] | null
   target_sections?: string[] | null
-  file_url: string
   created_at: string
 }
 

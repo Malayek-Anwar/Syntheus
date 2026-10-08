@@ -57,7 +57,6 @@ export default async function InstitutionalNoticesPage() {
           deadline: d.expires_at,
           target_departments: d.target_departments,
           target_semesters: d.target_semesters,
-          file_url: d.storage_path,
           created_at: d.created_at,
         }))}
         defaultTab="all"

@@ -40,7 +40,6 @@ export default async function StudentStudyPage() {
     target_departments: doc.target_departments,
     target_semesters: doc.target_semesters,
     target_sections: doc.target_sections,
-    file_url: doc.storage_path,
     created_at: doc.created_at,
   }))
 

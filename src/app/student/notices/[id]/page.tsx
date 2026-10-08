@@ -1,6 +1,6 @@
 import { verifyStudentSession } from '@/utils/auth'
 import { isDocumentVisibleToStudent } from '@/utils/audience'
-import { getInstitutionalSignedUrl } from '@/utils/storage'
+import { getInstitutionalSignedUrl, SIGNED_URL_TTL_SECONDS } from '@/utils/storage'
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { NoticeCompletionButton } from '@/components/NoticeCompletionButton'
@@ -59,7 +59,7 @@ export default async function NoticeInsightPage({
     .order('starts_at', { ascending: true })
 
   // 5. Generate secure signed URL for the authoritative PDF
-  const signedPdfUrl = (await getInstitutionalSignedUrl(supabase, doc.storage_path, 3600)) || ''
+  const signedPdfUrl = (await getInstitutionalSignedUrl(supabase, doc.storage_path, SIGNED_URL_TTL_SECONDS)) || ''
 
   const categoryKey = doc.category as DocumentCategory
   const catMeta = CATEGORY_META[categoryKey] || { label: doc.category, icon: '📄', group: 'institute' }

@@ -21,9 +21,6 @@ export interface AdminDocumentItem {
   target_semesters?: number[] | null
   target_sections?: string[] | null
   expires_at?: string | null
-  storage_path: string
-  storage_bucket: string
-  file_size: number
   created_at: string
 }
 

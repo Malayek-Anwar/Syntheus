@@ -89,6 +89,7 @@ Documents are partitioned across two core domains:
 ### 6. 🔒 Private Storage & Two-Phase Hard Deletion
 - **Zero Public Buckets:** Storage uses private buckets (`institutional-documents` and `personal-documents`).
 - **Short-Lived Signed URLs:** PDF previews and downloads utilize authenticated, time-limited signed URLs.
+- **Reviewed Institutional Ingestion:** Admin uploads remain `processing` while the server extracts PDF text and writes chunks/embeddings. AI metadata, events, and timetable entries remain suggestions until an administrator reviews and explicitly saves them as a draft or publishes them.
 - **Two-Phase Document Deletion:** Deleting a document disassociates historical message citations and document completion logs (`SET NULL`) to preserve audit trails before deleting database records and storage files.
 
 ---
@@ -163,7 +164,12 @@ Syntheus/
 ├── supabase/
 │   └── migrations/
 │       ├── 202610070000_syntheus_v1_canonical_schema.sql
-│       └── 202610070001_student_signup_and_security.sql
+│       ├── 202610070001_student_signup_and_security.sql
+│       ├── 202610080000_enable_rag_and_storage_policies.sql
+│       ├── 202610080001_harden_rag_chunk_access.sql
+│       ├── 202610080002_trusted_personal_document_ingestion.sql
+│       ├── 202610080003_private_document_storage.sql
+│       └── 202610080004_atomic_chat_finalization.sql
 ├── package.json
 └── README.md
 ```
@@ -190,19 +196,28 @@ Create a `.env.local` file in the project root:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
 # Groq Cloud API Key
 GROQ_API_KEY=gsk_your_groq_api_key
 ```
 
+`SUPABASE_SERVICE_ROLE_KEY` is server-only and is required for trusted institutional and personal document chunk ingestion. Never expose it through a `NEXT_PUBLIC_` variable or client code.
+
 ### 4. Database & Storage Setup
 Execute the canonical migrations in order in your Supabase SQL Editor:
 1. `supabase/migrations/202610070000_syntheus_v1_canonical_schema.sql`
 2. `supabase/migrations/202610070001_student_signup_and_security.sql`
+3. Apply the RAG access and trusted-ingestion migrations in timestamp order:
+   - `supabase/migrations/202610080000_enable_rag_and_storage_policies.sql`
+   - `supabase/migrations/202610080001_harden_rag_chunk_access.sql`
+   - `supabase/migrations/202610080002_trusted_personal_document_ingestion.sql`
+   - `supabase/migrations/202610080003_private_document_storage.sql`
+   - `supabase/migrations/202610080004_atomic_chat_finalization.sql`
 
-Create the private storage buckets in your Supabase Storage dashboard:
-- `institutional-documents` (Private)
-- `personal-documents` (Private)
+The storage migration creates or enforces the private `institutional-documents` and `personal-documents` buckets, PDF-only MIME restrictions, and the 25 MiB file limit. It also applies owner/targeting-scoped storage policies. Document views use 15-minute signed URLs; do not make either bucket public or use permanent public URLs.
+
+The chat finalization migration atomically saves assistant messages, authorized source-title snapshots, and conversation timestamps. Apply it before using the updated chat route.
 
 ### 5. Running the Application
 ```bash

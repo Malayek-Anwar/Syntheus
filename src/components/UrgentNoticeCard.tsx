@@ -5,7 +5,7 @@ import { CATEGORY_META } from '@/utils/constants'
 import type { DocumentCategory } from '@/types/database'
 
 export interface UrgentNoticeProps {
-  id?: string
+  id: string
   title: string
   category?: string | null
   deadline?: string | Date | null
@@ -13,7 +13,6 @@ export interface UrgentNoticeProps {
   target_departments?: string[] | null
   target_semesters?: number[] | null
   audience?: string | null
-  file_url: string
   priority?: string | null
   isCompleted?: boolean
 }
@@ -68,14 +67,12 @@ export function UrgentNoticeCard({
   target_departments,
   target_semesters,
   audience,
-  file_url,
   priority,
   isCompleted = false,
 }: UrgentNoticeProps) {
   const formattedDeadline = formatDeadline(deadline)
   const audienceText = formatAudience(target_departments, target_semesters, audience)
-  const isExternal = !id && (file_url.startsWith('http://') || file_url.startsWith('https://'))
-  const noticeUrl = id ? `/student/notices/${id}` : file_url
+  const noticeUrl = `/student/notices/${id}`
 
   const TitleContent = (
     <h3 className="text-base sm:text-lg font-semibold text-gray-900 leading-snug line-clamp-2 group-hover:text-[#176b61] transition-colors">
@@ -134,15 +131,9 @@ export function UrgentNoticeCard({
         </div>
 
         {/* Main Title Link */}
-        {isExternal ? (
-          <a href={file_url} target="_blank" rel="noopener noreferrer" className="block group mb-3">
-            {TitleContent}
-          </a>
-        ) : (
-          <Link href={noticeUrl} className="block group mb-3">
-            {TitleContent}
-          </Link>
-        )}
+        <Link href={noticeUrl} className="block group mb-3">
+          {TitleContent}
+        </Link>
       </div>
 
       {/* Footer Info: Targeted Audience & Action Button */}
@@ -157,30 +148,16 @@ export function UrgentNoticeCard({
 
         {/* Action Buttons */}
         <div className="flex items-center justify-end gap-2 flex-shrink-0">
-          {id && <NoticeCompletionButton noticeId={id} isCompleted={isCompleted} />}
-          {isExternal ? (
-            <a
-              href={file_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-1 px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold text-white bg-[#176b61] hover:bg-[#12564f] shadow-xs hover:shadow transition-all focus:outline-none focus:ring-2 focus:ring-[#72b5aa] focus:ring-offset-2"
-            >
-              <span>Open document</span>
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </a>
-          ) : (
-            <Link
-              href={noticeUrl}
-              className="inline-flex items-center justify-center gap-1 px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold text-white bg-[#176b61] hover:bg-[#12564f] shadow-xs hover:shadow transition-all focus:outline-none focus:ring-2 focus:ring-[#72b5aa] focus:ring-offset-2"
-            >
-              <span>Open notice</span>
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-              </svg>
-            </Link>
-          )}
+          <NoticeCompletionButton noticeId={id} isCompleted={isCompleted} />
+          <Link
+            href={noticeUrl}
+            className="inline-flex items-center justify-center gap-1 px-3.5 py-1.5 rounded-full text-xs sm:text-sm font-semibold text-white bg-[#176b61] hover:bg-[#12564f] shadow-xs hover:shadow transition-all focus:outline-none focus:ring-2 focus:ring-[#72b5aa] focus:ring-offset-2"
+          >
+            <span>Open notice</span>
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+            </svg>
+          </Link>
         </div>
       </div>
     </div>

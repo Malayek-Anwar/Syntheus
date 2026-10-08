@@ -6,7 +6,7 @@ import { deletePersonalDocument } from '@/app/student/my-documents/actions'
 import { ConfirmModal } from '@/components/ConfirmModal'
 import { getErrorMessage } from '@/utils/errors'
 
-export function DeleteDocumentButton({ id, fileUrl }: { id: string, fileUrl: string }) {
+export function DeleteDocumentButton({ id }: { id: string }) {
   const [isDeleting, setIsDeleting] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -17,7 +17,7 @@ export function DeleteDocumentButton({ id, fileUrl }: { id: string, fileUrl: str
     setError(null)
 
     try {
-      const result = await deletePersonalDocument(id, fileUrl)
+      const result = await deletePersonalDocument(id)
       
       if (!result.success) {
         setError(result.error || 'Failed to delete document')

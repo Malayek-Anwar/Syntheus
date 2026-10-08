@@ -3,40 +3,25 @@
 import { verifyAdminAction } from '@/utils/auth'
 import { normalizeAudience } from '@/utils/audience'
 import { getErrorMessage } from '@/utils/errors'
-import { extractPdfText } from '@/utils/pdf'
+import { ingestInstitutionalDocument } from '@/lib/documents/ingest-institutional-document'
+import { validatePdfUpload } from '@/lib/documents/validate-pdf-upload'
+import type {
+  CandidateEvent,
+  CandidateTimetable,
+} from '@/lib/documents/institutional-types'
+export type { CandidateEvent, CandidateTimetable } from '@/lib/documents/institutional-types'
 import OpenAI from 'openai'
 import { v4 as uuidv4 } from 'uuid'
-import { generateEmbedding } from '@/utils/embeddings'
-import { INSTITUTIONAL_BUCKET, extractStoragePath, getInstitutionalSignedUrl } from '@/utils/storage'
+import {
+  INSTITUTIONAL_BUCKET,
+  getInstitutionalSignedUrl,
+  SIGNED_URL_TTL_SECONDS,
+} from '@/utils/storage'
 import type { DocumentCategory, AcademicEventType } from '@/types/database'
 import { ALL_DOCUMENT_CATEGORIES } from '@/utils/constants'
 
-export type CandidateEvent = {
-  title: string
-  description?: string | null
-  event_type: AcademicEventType
-  starts_at: string
-  ends_at?: string | null
-  all_day?: boolean
-}
-
-export type CandidateTimetableEntry = {
-  day_of_week: number
-  start_time: string
-  end_time: string
-  subject: string
-  room?: string | null
-  instructor?: string | null
-}
-
-export type CandidateTimetable = {
-  name: string
-  valid_from: string
-  valid_until?: string | null
-  entries: CandidateTimetableEntry[]
-}
-
 export type ExtractedData = {
+  documentId: string
   title: string
   description: string
   category: DocumentCategory
@@ -47,15 +32,13 @@ export type ExtractedData = {
   expires_at: string | null
   candidate_events: CandidateEvent[]
   candidate_timetable: CandidateTimetable | null
-  rawText: string
-  storagePath: string
-  storageBucket: string
-  fileSize: number
   signedUrl: string
 }
 
 export async function parsePDF(formData: FormData): Promise<{ success: boolean; data?: ExtractedData; error?: string }> {
   let uploadedStoragePath: string | null = null
+  let processingDocumentId: string | null = null
+  let documentSupabase: Awaited<ReturnType<typeof verifyAdminAction>>['supabase'] | null = null
 
   try {
     const auth = await verifyAdminAction()
@@ -63,42 +46,64 @@ export async function parsePDF(formData: FormData): Promise<{ success: boolean; 
       return { success: false, error: auth.error || '403 Forbidden: Admin privileges required' }
     }
 
-    const file = formData.get('file') as File
-    if (!file) {
-      return { success: false, error: 'No file provided' }
-    }
+    const file = formData.get('file')
+    const { file: pdfFile, buffer, text: rawText } = await validatePdfUpload(file)
 
     const supabase = auth.supabase
+    documentSupabase = supabase
 
-    // 1. Upload to Supabase Storage (institutional-documents private bucket)
-    const fileExt = file.name.split('.').pop() || 'pdf'
-    const fileName = `${uuidv4()}.${fileExt}`
+    const fileName = `${uuidv4()}.pdf`
     uploadedStoragePath = fileName
+    const initialTitle = pdfFile.name.replace(/\.pdf$/i, '').trim() || 'Untitled institutional document'
 
+    // Keep the document in processing until an administrator reviews its suggestions.
+    const { data: processingDocument, error: documentError } = await supabase
+      .from('documents')
+      .insert({
+        title: initialTitle,
+        category: 'notice',
+        status: 'processing',
+        storage_bucket: INSTITUTIONAL_BUCKET,
+        storage_path: fileName,
+        mime_type: 'application/pdf',
+        file_size: pdfFile.size,
+        uploaded_by: auth.admin.id,
+        updated_at: new Date().toISOString(),
+      })
+      .select('id, title, storage_bucket, storage_path, uploaded_by')
+      .single()
+
+    if (documentError || !processingDocument) {
+      throw new Error(`Failed to create processing document: ${documentError?.message ?? 'No document returned'}`)
+    }
+    processingDocumentId = processingDocument.id
+
+    // The source is bound to the processing row before server-side extraction begins.
     const { error: uploadError } = await supabase
       .storage
       .from(INSTITUTIONAL_BUCKET)
-      .upload(fileName, file, {
+      .upload(fileName, buffer, {
         contentType: 'application/pdf',
         cacheControl: '3600',
         upsert: false
       })
 
     if (uploadError) {
-      return { success: false, error: `Upload failed: ${uploadError.message}` }
+      throw new Error(`Upload failed: ${uploadError.message}`)
     }
 
-    const signedUrl = await getInstitutionalSignedUrl(supabase, fileName, 3600)
+    const signedUrl = await getInstitutionalSignedUrl(supabase, fileName, SIGNED_URL_TTL_SECONDS)
     if (!signedUrl) {
       throw new Error('Failed to generate preview signed URL for uploaded PDF')
     }
 
-    // 2. Parse PDF Text
-    const arrayBuffer = await file.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-    const rawText = await extractPdfText(buffer)
+    // 2. Ingest only text extracted by server-side PDF parsing.
+    await ingestInstitutionalDocument(processingDocument, auth.admin.id, rawText)
 
-    // 3. Extract institutional intelligence using Groq
+    // AI output remains suggestions for administrator review; it is not persisted here.
+    if (!process.env.GROQ_API_KEY) {
+      throw new Error('GROQ_API_KEY is required to suggest institutional metadata')
+    }
     const groq = new OpenAI({
       apiKey: process.env.GROQ_API_KEY,
       baseURL: 'https://api.groq.com/openai/v1',
@@ -192,7 +197,8 @@ JSON Schema:
     return {
       success: true,
       data: {
-        title: parsed.title || file.name.replace(/\.pdf$/i, ''),
+        documentId: processingDocument.id,
+        title: parsed.title || pdfFile.name.replace(/\.pdf$/i, ''),
         description: parsed.description || '',
         category,
         tracks_completion: Boolean(parsed.tracks_completion),
@@ -202,40 +208,40 @@ JSON Schema:
         expires_at: parsed.expires_at || null,
         candidate_events,
         candidate_timetable: parsed.candidate_timetable || null,
-        rawText,
-        storagePath: fileName,
-        storageBucket: INSTITUTIONAL_BUCKET,
-        fileSize: file.size,
         signedUrl,
       }
     }
   } catch (error: unknown) {
     console.error('Error in parsePDF:', error)
-    // Ingestion failure: clean up storage file if it was created
+    const cleanupErrors: string[] = []
+    if (processingDocumentId && documentSupabase) {
+      const { error: deleteError } = await documentSupabase
+        .from('documents')
+        .delete()
+        .eq('id', processingDocumentId)
+      if (deleteError) cleanupErrors.push(`document cleanup failed: ${deleteError.message}`)
+    }
     if (uploadedStoragePath) {
       try {
         const auth = await verifyAdminAction()
-        if (auth.supabase) {
-          await auth.supabase.storage.from(INSTITUTIONAL_BUCKET).remove([uploadedStoragePath])
-        }
+        if (!auth.authorized) throw new Error(auth.error || 'Admin authorization failed during cleanup')
+        const { error: storageError } = await auth.supabase.storage
+          .from(INSTITUTIONAL_BUCKET)
+          .remove([uploadedStoragePath])
+        if (storageError) cleanupErrors.push(`storage cleanup failed: ${storageError.message}`)
       } catch (cleanupErr) {
-        console.warn('Failed to cleanup temporary storage file:', cleanupErr)
+        cleanupErrors.push(`storage cleanup failed: ${getErrorMessage(cleanupErr)}`)
       }
     }
-    return { success: false, error: getErrorMessage(error) }
+    const cleanupMessage = cleanupErrors.length > 0
+      ? ` Cleanup also failed: ${cleanupErrors.join('; ')}`
+      : ''
+    return { success: false, error: `${getErrorMessage(error)}${cleanupMessage}` }
   }
-}
-
-function chunkText(text: string, maxWords: number = 300): string[] {
-  const words = text.split(/\s+/)
-  const chunks: string[] = []
-  for (let i = 0; i < words.length; i += maxWords) {
-    chunks.push(words.slice(i, i + maxWords).join(' '))
-  }
-  return chunks
 }
 
 export type PublishDocumentPayload = {
+  documentId: string
   title: string
   description: string
   category: DocumentCategory
@@ -244,18 +250,12 @@ export type PublishDocumentPayload = {
   target_semesters: number[] | null
   target_sections: string[] | null
   expires_at?: string | null
-  storagePath: string
-  storageBucket: string
-  fileSize: number
-  rawText: string
   candidate_events?: CandidateEvent[]
   candidate_timetable?: CandidateTimetable | null
   isDraft?: boolean
 }
 
 export async function publishDocument(payload: PublishDocumentPayload) {
-  let createdDocumentId: string | null = null
-
   try {
     const auth = await verifyAdminAction()
     if (!auth.authorized || !auth.admin) {
@@ -263,75 +263,53 @@ export async function publishDocument(payload: PublishDocumentPayload) {
     }
 
     const supabase = auth.supabase
-    const status = payload.isDraft ? 'draft' : 'published'
-    const publishedAt = payload.isDraft ? null : new Date().toISOString()
+    if (!ALL_DOCUMENT_CATEGORIES.includes(payload.category)) {
+      throw new Error('Invalid document category')
+    }
+    if (!payload.title.trim()) throw new Error('Document title is required')
 
-    // 1. Insert into public.documents
     const { data: docData, error: docError } = await supabase
       .from('documents')
-      .insert({
+      .select('id, status')
+      .eq('id', payload.documentId)
+      .eq('uploaded_by', auth.admin.id)
+      .in('status', ['processing', 'draft'])
+      .single()
+
+    if (docError || !docData) {
+      throw new Error(`Processing document not found or no longer editable: ${docError?.message ?? ''}`)
+    }
+
+    // Keep the document hidden until all administrator-approved structured data is saved.
+    const { error: updateError } = await supabase
+      .from('documents')
+      .update({
         title: payload.title,
-        description: payload.description,
+        description: payload.description || null,
         category: payload.category,
-        status,
+        status: 'draft',
         tracks_completion: payload.tracks_completion,
         target_departments: payload.target_departments,
         target_semesters: payload.target_semesters,
         target_sections: payload.target_sections,
         expires_at: payload.expires_at || null,
-        storage_bucket: payload.storageBucket || INSTITUTIONAL_BUCKET,
-        storage_path: payload.storagePath,
-        mime_type: 'application/pdf',
-        file_size: payload.fileSize,
-        uploaded_by: auth.admin.id,
-        published_at: publishedAt,
+        published_at: null,
         updated_at: new Date().toISOString(),
       })
-      .select('id')
-      .single()
+      .eq('id', payload.documentId)
+      .eq('uploaded_by', auth.admin.id)
+    if (updateError) throw new Error(`Failed to save reviewed metadata: ${updateError.message}`)
 
-    if (docError || !docData) {
-      throw new Error(`Document insert failed: ${docError?.message}`)
-    }
+    // Replace structured suggestions on retries so a failed finalize remains safe to retry.
+    const { error: existingEventsError } = await supabase
+      .from('academic_events')
+      .delete()
+      .eq('source_document_id', payload.documentId)
+    if (existingEventsError) throw new Error(`Failed to replace document events: ${existingEventsError.message}`)
 
-    createdDocumentId = docData.id
-
-    // 2. Chunk text and generate vector embeddings
-    const rawChunks = chunkText(payload.rawText, 300)
-    const header = `[Document: ${payload.title} | Category: ${payload.category} | Departments: ${payload.target_departments ? payload.target_departments.join(',') : 'All'} | Semesters: ${payload.target_semesters ? payload.target_semesters.join(',') : 'All'}]`
-
-    const enrichedChunks = rawChunks.map((chunk, idx) => ({
-      chunk_index: idx,
-      content: `${header}\n${chunk}`,
-      page_number: null,
-    }))
-
-    const chunkRows = []
-    for (const chunk of enrichedChunks) {
-      const embedding = await generateEmbedding(chunk.content)
-      chunkRows.push({
-        document_id: createdDocumentId,
-        chunk_index: chunk.chunk_index,
-        content: chunk.content,
-        embedding,
-        page_number: chunk.page_number,
-      })
-    }
-
-    if (chunkRows.length > 0) {
-      const { error: chunkError } = await supabase
-        .from('document_chunks')
-        .insert(chunkRows)
-
-      if (chunkError) {
-        throw new Error(`Failed to insert document chunks: ${chunkError.message}`)
-      }
-    }
-
-    // 3. Insert structured academic events if provided
     if (payload.candidate_events && payload.candidate_events.length > 0) {
       const eventRows = payload.candidate_events.map(ev => ({
-        source_document_id: createdDocumentId,
+        source_document_id: payload.documentId,
         title: ev.title,
         description: ev.description || null,
         event_type: ev.event_type,
@@ -347,17 +325,31 @@ export async function publishDocument(payload: PublishDocumentPayload) {
         .from('academic_events')
         .insert(eventRows)
 
-      if (eventsError) {
-        console.warn('Warning: Failed to insert candidate academic events:', eventsError.message)
+      if (eventsError) throw new Error(`Failed to save reviewed events: ${eventsError.message}`)
+    }
+
+    const { data: existingTimetables, error: existingTimetablesError } = await supabase
+      .from('timetables')
+      .select('id')
+      .eq('source_document_id', payload.documentId)
+    if (existingTimetablesError) {
+      throw new Error(`Failed to replace document timetable: ${existingTimetablesError.message}`)
+    }
+    if (existingTimetables.length > 0) {
+      const { error: deleteTimetablesError } = await supabase
+        .from('timetables')
+        .delete()
+        .eq('source_document_id', payload.documentId)
+      if (deleteTimetablesError) {
+        throw new Error(`Failed to replace document timetable: ${deleteTimetablesError.message}`)
       }
     }
 
-    // 4. Insert structured timetable if provided
     if (payload.candidate_timetable && payload.candidate_timetable.entries.length > 0) {
       const { data: timetableData, error: timetableError } = await supabase
         .from('timetables')
         .insert({
-          source_document_id: createdDocumentId,
+          source_document_id: payload.documentId,
           name: payload.candidate_timetable.name,
           target_departments: payload.target_departments,
           target_semesters: payload.target_semesters,
@@ -369,35 +361,79 @@ export async function publishDocument(payload: PublishDocumentPayload) {
         .select('id')
         .single()
 
-      if (!timetableError && timetableData) {
-        const entryRows = payload.candidate_timetable.entries.map(entry => ({
-          timetable_id: timetableData.id,
-          day_of_week: entry.day_of_week,
-          start_time: entry.start_time,
-          end_time: entry.end_time,
-          subject: entry.subject,
-          room: entry.room || null,
-          instructor: entry.instructor || null,
-        }))
-
-        await supabase.from('timetable_entries').insert(entryRows)
+      if (timetableError || !timetableData) {
+        throw new Error(`Failed to save reviewed timetable: ${timetableError?.message ?? 'No timetable returned'}`)
       }
+
+      const entryRows = payload.candidate_timetable.entries.map(entry => ({
+        timetable_id: timetableData.id,
+        day_of_week: entry.day_of_week,
+        start_time: entry.start_time,
+        end_time: entry.end_time,
+        subject: entry.subject,
+        room: entry.room || null,
+        instructor: entry.instructor || null,
+      }))
+
+      const { error: entriesError } = await supabase.from('timetable_entries').insert(entryRows)
+      if (entriesError) throw new Error(`Failed to save reviewed timetable entries: ${entriesError.message}`)
     }
 
-    return { success: true, documentId: createdDocumentId }
+    if (!payload.isDraft) {
+      const { error: publishError } = await supabase
+        .from('documents')
+        .update({
+          status: 'published',
+          published_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', payload.documentId)
+        .eq('uploaded_by', auth.admin.id)
+      if (publishError) throw new Error(`Failed to publish reviewed document: ${publishError.message}`)
+    }
+
+    return { success: true, documentId: payload.documentId }
   } catch (error: unknown) {
     console.error('Error in publishDocument:', error)
-    // Clean up created document if it failed halfway
-    if (createdDocumentId) {
-      try {
-        const auth = await verifyAdminAction()
-        if (auth.supabase) {
-          await auth.supabase.from('documents').delete().eq('id', createdDocumentId)
-        }
-      } catch (cleanupErr) {
-        console.warn('Failed to cleanup partial document record:', cleanupErr)
-      }
+    return { success: false, error: getErrorMessage(error) }
+  }
+}
+
+export async function discardProcessingDocument(documentId: string) {
+  try {
+    const auth = await verifyAdminAction()
+    if (!auth.authorized || !auth.admin) {
+      return { success: false, error: auth.error || '403 Forbidden: Admin privileges required' }
     }
+
+    const { data: document, error: fetchError } = await auth.supabase
+      .from('documents')
+      .select('id, status, storage_bucket, storage_path')
+      .eq('id', documentId)
+      .eq('uploaded_by', auth.admin.id)
+      .eq('status', 'processing')
+      .single()
+    if (fetchError || !document) {
+      throw new Error(`Processing document not found: ${fetchError?.message ?? ''}`)
+    }
+
+    const { error: deleteError } = await auth.supabase
+      .from('documents')
+      .delete()
+      .eq('id', document.id)
+      .eq('uploaded_by', auth.admin.id)
+    if (deleteError) throw new Error(`Failed to delete processing document: ${deleteError.message}`)
+
+    const { error: storageError } = await auth.supabase.storage
+      .from(document.storage_bucket)
+      .remove([document.storage_path])
+    if (storageError) {
+      throw new Error(`Processing document was deleted, but its PDF cleanup failed: ${storageError.message}`)
+    }
+
+    return { success: true }
+  } catch (error: unknown) {
+    console.error('Error discarding processing document:', error)
     return { success: false, error: getErrorMessage(error) }
   }
 }
@@ -491,7 +527,7 @@ export async function toggleDocumentLifecycle(id: string, action: 'publish' | 'd
  * 3. Delete document row (cascades to document_chunks, academic_events, timetables, timetable_entries)
  * 4. Remove physical PDF file from private Storage bucket
  */
-export async function deletePublishedDocument(id: string, storagePathOrUrl: string) {
+export async function deletePublishedDocument(id: string) {
   try {
     const auth = await verifyAdminAction()
     if (!auth.authorized) {
@@ -499,18 +535,31 @@ export async function deletePublishedDocument(id: string, storagePathOrUrl: stri
     }
 
     const supabase = auth.supabase
+    const { data: document, error: documentError } = await supabase
+      .from('documents')
+      .select('id, storage_bucket, storage_path')
+      .eq('id', id)
+      .single()
+    if (documentError || !document) {
+      throw new Error(`Document not found: ${documentError?.message ?? ''}`)
+    }
+    if (document.storage_bucket !== INSTITUTIONAL_BUCKET) {
+      throw new Error('Document uses an unexpected storage bucket')
+    }
 
     // 1. Disassociate message sources
-    await supabase
+    const { error: sourcesError } = await supabase
       .from('message_sources')
       .update({ document_id: null })
       .eq('document_id', id)
+    if (sourcesError) throw new Error(`Failed to preserve document citations: ${sourcesError.message}`)
 
     // 2. Disassociate document completions
-    await supabase
+    const { error: completionsError } = await supabase
       .from('document_completions')
       .update({ document_id: null })
       .eq('document_id', id)
+    if (completionsError) throw new Error(`Failed to preserve document completions: ${completionsError.message}`)
 
     // 3. Delete document from database (cascades chunks, events, timetables)
     const { error: dbError } = await supabase
@@ -521,11 +570,11 @@ export async function deletePublishedDocument(id: string, storagePathOrUrl: stri
     if (dbError) throw new Error(`Database delete failed: ${dbError.message}`)
 
     // 4. Delete storage file separately
-    const storagePath = extractStoragePath(storagePathOrUrl, INSTITUTIONAL_BUCKET)
-    if (storagePath) {
-      await supabase.storage
-        .from(INSTITUTIONAL_BUCKET)
-        .remove([storagePath])
+    const { error: storageError } = await supabase.storage
+      .from(INSTITUTIONAL_BUCKET)
+      .remove([document.storage_path])
+    if (storageError) {
+      throw new Error(`Document was deleted, but its PDF cleanup failed: ${storageError.message}`)
     }
 
     return { success: true }
