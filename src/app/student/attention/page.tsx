@@ -5,6 +5,7 @@ import { UrgentNoticeCard } from '@/components/UrgentNoticeCard'
 import Link from 'next/link'
 import { EVENT_TYPE_META } from '@/utils/constants'
 import type { AcademicEventType } from '@/types/database'
+import { formatInstitutionalDate } from '@/utils/deadlines'
 
 export default async function StudentAttentionPage({
   searchParams,
@@ -127,7 +128,7 @@ export default async function StudentAttentionPage({
                 <div key={ev.id} className="p-2.5 rounded-lg bg-white border border-[#e7dfc5] text-xs">
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-gray-900 truncate">{ev.title}</span>
-                    <span className="text-[10px] text-[#756843] font-mono">{new Date(ev.starts_at).toLocaleDateString()}</span>
+                    <span className="text-[10px] text-[#756843] font-mono">{formatInstitutionalDate(ev.starts_at)}</span>
                   </div>
                   <span className="text-[10px] text-gray-500">{meta.label}</span>
                 </div>

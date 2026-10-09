@@ -71,7 +71,7 @@ export async function signup(formData: FormData): Promise<SignupResult> {
   const { data: authData, error: authError } = await supabase.auth.admin.createUser({
     email,
     password,
-    email_confirm: false,
+    email_confirm: true,
   })
 
   if (authError || !authData.user) {

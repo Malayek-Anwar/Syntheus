@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { EVENT_TYPE_META } from '@/utils/constants'
 import type { AcademicEvent, Timetable, TimetableEntry, AcademicEventType } from '@/types/database'
+import { formatInstitutionalDate } from '@/utils/deadlines'
 
 interface StudentCalendarViewProps {
   events: AcademicEvent[]
@@ -348,7 +349,7 @@ export function StudentCalendarView({ events, timetables }: StudentCalendarViewP
                               : 'bg-gray-100 text-gray-600'
                           }`}
                         >
-                          {startDate.toLocaleDateString(undefined, {
+                          {formatInstitutionalDate(startDate, {
                             weekday: 'short',
                             month: 'short',
                             day: 'numeric',
@@ -372,9 +373,9 @@ export function StudentCalendarView({ events, timetables }: StudentCalendarViewP
                           <span>All-day event</span>
                         ) : (
                           <span>
-                            {startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {formatInstitutionalDate(startDate, { hour: '2-digit', minute: '2-digit' })}
                             {endDate &&
-                              ` – ${endDate.toLocaleTimeString([], {
+                              ` – ${formatInstitutionalDate(endDate, {
                                 hour: '2-digit',
                                 minute: '2-digit',
                               })}`}

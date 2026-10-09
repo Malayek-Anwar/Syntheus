@@ -1,5 +1,8 @@
 import type { DocumentCategory, InstituteCategory, StudyCategory, AcademicEventType } from '@/types/database'
 
+export const INSTITUTION_TIME_ZONE = 'Asia/Kolkata'
+export const INSTITUTION_TIME_ZONE_OFFSET = '+05:30'
+
 export const INSTITUTE_CATEGORIES: InstituteCategory[] = [
   'notice',
   'circular',

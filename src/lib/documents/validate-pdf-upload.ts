@@ -37,5 +37,11 @@ export async function validatePdfUpload(
     throw new Error('The uploaded file is not a readable PDF', { cause: error })
   }
 
+  if (!text.trim()) {
+    throw new Error(
+      'The PDF contains no extractable text. Scanned PDFs require OCR, which is not supported in V1.',
+    )
+  }
+
   return { file, buffer, text }
 }

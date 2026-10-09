@@ -5,6 +5,10 @@ import { normalizeAudience } from '@/utils/audience'
 import { getErrorMessage } from '@/utils/errors'
 import { ingestInstitutionalDocument } from '@/lib/documents/ingest-institutional-document'
 import { validatePdfUpload } from '@/lib/documents/validate-pdf-upload'
+import {
+  parseAiInstitutionalMetadata,
+  parsePublishDocumentPayload,
+} from '@/lib/documents/validate-institutional-metadata'
 import type {
   CandidateEvent,
   CandidateTimetable,
@@ -17,7 +21,7 @@ import {
   getInstitutionalSignedUrl,
   SIGNED_URL_TTL_SECONDS,
 } from '@/utils/storage'
-import type { DocumentCategory, AcademicEventType } from '@/types/database'
+import type { DocumentCategory } from '@/types/database'
 import { ALL_DOCUMENT_CATEGORIES } from '@/utils/constants'
 
 export type ExtractedData = {
@@ -170,44 +174,34 @@ JSON Schema:
       throw new Error('Failed to extract metadata from AI model')
     }
 
-    const parsed = JSON.parse(extractedContent)
-
-    // Normalize category
-    const category: DocumentCategory = ALL_DOCUMENT_CATEGORIES.includes(parsed.category)
-      ? parsed.category
-      : 'notice'
-
-    const { target_departments, target_semesters, target_sections } = normalizeAudience(
-      parsed.target_departments,
-      parsed.target_semesters,
-      parsed.target_sections
+    const parsed = parseAiInstitutionalMetadata(
+      JSON.parse(extractedContent),
     )
 
-    const candidate_events: CandidateEvent[] = Array.isArray(parsed.candidate_events)
-      ? parsed.candidate_events.map((ev: Record<string, unknown>) => ({
-          title: String(ev.title || parsed.title),
-          description: ev.description ? String(ev.description) : null,
-          event_type: (ev.event_type as AcademicEventType) || 'other',
-          starts_at: String(ev.starts_at || new Date().toISOString()),
-          ends_at: ev.ends_at ? String(ev.ends_at) : null,
-          all_day: Boolean(ev.all_day ?? true),
-        }))
-      : []
+    const {
+      target_departments,
+      target_semesters,
+      target_sections,
+    } = normalizeAudience(
+      parsed.target_departments,
+      parsed.target_semesters,
+      parsed.target_sections,
+    )
 
     return {
       success: true,
       data: {
         documentId: processingDocument.id,
-        title: parsed.title || pdfFile.name.replace(/\.pdf$/i, ''),
-        description: parsed.description || '',
-        category,
-        tracks_completion: Boolean(parsed.tracks_completion),
+        title: parsed.title,
+        description: parsed.description,
+        category: parsed.category,
+        tracks_completion: parsed.tracks_completion,
         target_departments,
         target_semesters,
         target_sections,
-        expires_at: parsed.expires_at || null,
-        candidate_events,
-        candidate_timetable: parsed.candidate_timetable || null,
+        expires_at: parsed.expires_at,
+        candidate_events: parsed.candidate_events as CandidateEvent[],
+        candidate_timetable: parsed.candidate_timetable as CandidateTimetable | null,
         signedUrl,
       }
     }
@@ -261,6 +255,10 @@ export async function publishDocument(payload: PublishDocumentPayload) {
     if (!auth.authorized || !auth.admin) {
       return { success: false, error: auth.error || '403 Forbidden: Admin privileges required' }
     }
+
+    payload = parsePublishDocumentPayload(
+      payload,
+    ) as PublishDocumentPayload
 
     const supabase = auth.supabase
     if (!ALL_DOCUMENT_CATEGORIES.includes(payload.category)) {

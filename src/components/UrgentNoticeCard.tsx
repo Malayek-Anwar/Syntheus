@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { NoticeCompletionButton } from '@/components/NoticeCompletionButton'
 import { CATEGORY_META } from '@/utils/constants'
 import type { DocumentCategory } from '@/types/database'
+import { formatInstitutionalDate } from '@/utils/deadlines'
 
 export interface UrgentNoticeProps {
   id: string
@@ -26,10 +27,10 @@ function formatDeadline(dateValue: string | Date | null | undefined): string {
     const date = typeof dateValue === 'string' ? new Date(dateValue) : dateValue
     if (isNaN(date.getTime())) return String(dateValue)
     
-    return new Intl.DateTimeFormat('en-US', {
+    return formatInstitutionalDate(date, {
       day: 'numeric',
       month: 'long',
-    }).format(date)
+    })
   } catch {
     return String(dateValue)
   }
@@ -125,7 +126,7 @@ export function UrgentNoticeCard({
           )}
           {!deadline && starts_at && (
             <div className="flex items-center text-xs font-semibold text-[#35635d] bg-[#eef4f3] px-2.5 py-1 rounded-full border border-[#d5e5e1] flex-shrink-0 whitespace-nowrap">
-              Opens {new Date(starts_at).toLocaleDateString()}
+              Opens {formatInstitutionalDate(starts_at)}
             </div>
           )}
         </div>

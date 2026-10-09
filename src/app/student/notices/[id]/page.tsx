@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { NoticeCompletionButton } from '@/components/NoticeCompletionButton'
 import { CATEGORY_META, EVENT_TYPE_META } from '@/utils/constants'
 import type { AcademicEventType, DocumentCategory } from '@/types/database'
+import { formatInstitutionalDate } from '@/utils/deadlines'
 
 export default async function NoticeInsightPage({
   params,
@@ -127,7 +128,7 @@ export default async function NoticeInsightPage({
               </span>
             ) : doc.expires_at ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-[#756843] bg-[#f5f3eb] border border-[#e7dfc5]">
-                Valid until {new Date(doc.expires_at).toLocaleDateString()}
+                Valid until {formatInstitutionalDate(doc.expires_at)}
               </span>
             ) : null}
           </div>
@@ -198,8 +199,8 @@ export default async function NoticeInsightPage({
                       <p className="text-[11px] text-gray-500 line-clamp-2">{ev.description}</p>
                     )}
                     <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-xs text-gray-600 font-mono">
-                      <span>{new Date(ev.starts_at).toLocaleDateString()}</span>
-                      {ev.ends_at && <span>→ {new Date(ev.ends_at).toLocaleDateString()}</span>}
+                      <span>{formatInstitutionalDate(ev.starts_at)}</span>
+                      {ev.ends_at && <span>→ {formatInstitutionalDate(ev.ends_at)}</span>}
                     </div>
                   </div>
                 )

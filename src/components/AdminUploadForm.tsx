@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation'
 import { getErrorMessage } from '@/utils/errors'
 import type { DocumentCategory } from '@/types/database'
 import { ALL_DOCUMENT_CATEGORIES, CATEGORY_META } from '@/utils/constants'
+import { formatInstitutionalDate } from '@/utils/deadlines'
 
 const ALL_DEPTS = ['CSE', 'ECE', 'ME', 'CE', 'IT']
 const ALL_SEMS = [1, 2, 3, 4, 5, 6, 7, 8]
@@ -379,7 +380,9 @@ export function AdminUploadForm() {
                         {ev.event_type}
                       </span>
                     </div>
-                    <span className="text-gray-500 font-mono text-[11px]">{ev.starts_at.split('T')[0]}</span>
+                    <span className="text-gray-500 font-mono text-[11px]">
+                      {formatInstitutionalDate(ev.starts_at, { year: 'numeric', month: '2-digit', day: '2-digit' })}
+                    </span>
                   </div>
                 ))}
               </div>

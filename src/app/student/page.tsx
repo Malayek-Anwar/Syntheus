@@ -6,6 +6,7 @@ import { NoticeFilterFeed } from '@/components/NoticeFilterFeed'
 import Link from 'next/link'
 import { EVENT_TYPE_META } from '@/utils/constants'
 import type { AcademicEventType } from '@/types/database'
+import { formatInstitutionalDate } from '@/utils/deadlines'
 
 export default async function StudentHomePage() {
   const auth = await verifyStudentSession()
@@ -131,7 +132,7 @@ export default async function StudentHomePage() {
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-gray-500 font-mono pt-1 border-t border-gray-100">
-                    <span>{new Date(ev.starts_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    <span>{formatInstitutionalDate(ev.starts_at, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                     {ev.all_day && <span className="text-[10px] uppercase font-bold text-gray-400">All Day</span>}
                   </div>
                 </div>

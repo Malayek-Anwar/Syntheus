@@ -1,6 +1,19 @@
+import { INSTITUTION_TIME_ZONE } from '@/utils/constants'
+
 /**
  * Utility functions for deadline calculations, active status, and automated archiving.
  */
+
+export function formatInstitutionalDate(
+  value: string | Date,
+  options: Intl.DateTimeFormatOptions = {}
+): string {
+  const date = typeof value === 'string' ? new Date(value) : value
+  return new Intl.DateTimeFormat(undefined, {
+    ...options,
+    timeZone: INSTITUTION_TIME_ZONE,
+  }).format(date)
+}
 
 /**
  * Parses a date or date-string safely into an ISO string, or returns null if invalid.

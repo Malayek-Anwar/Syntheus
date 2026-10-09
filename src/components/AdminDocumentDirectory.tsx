@@ -6,6 +6,7 @@ import { DeleteAdminDocumentButton } from './DeleteAdminDocumentButton'
 import { toggleDocumentLifecycle } from '@/app/admin/actions'
 import { useRouter } from 'next/navigation'
 import { CATEGORY_META } from '@/utils/constants'
+import { formatInstitutionalDate } from '@/utils/deadlines'
 
 type LifecycleTab = 'live' | 'drafts' | 'archived' | 'all'
 
@@ -222,7 +223,7 @@ export function AdminDocumentDirectory({ documents = [] }: AdminDocumentDirector
 
                     {doc.expires_at && (
                       <span className="text-[11px] font-medium text-[#756843] bg-[#f5f3eb] px-2 py-0.5 rounded-full border border-[#e7dfc5]">
-                        Expires {new Date(doc.expires_at).toLocaleDateString()}
+                        Expires {formatInstitutionalDate(doc.expires_at)}
                       </span>
                     )}
                   </div>
