@@ -22,7 +22,7 @@ declare
   v_timetable_id uuid;
   v_now timestamptz := now();
 begin
-  if (select auth.uid()) is null or not (select public.is_admin()) then
+  if (select auth.uid()) is null or not (select private.is_admin()) then
     raise exception 'An administrator session is required';
   end if;
 
@@ -320,7 +320,7 @@ as $$
 declare
   v_now timestamptz := now();
 begin
-  if (select auth.uid()) is null or not (select public.is_admin()) then
+  if (select auth.uid()) is null or not (select private.is_admin()) then
     raise exception 'An administrator session is required';
   end if;
 
