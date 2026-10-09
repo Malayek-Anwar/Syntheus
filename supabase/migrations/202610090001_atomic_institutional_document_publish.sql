@@ -299,7 +299,9 @@ grant execute on function public.publish_institutional_document(
   text[], timestamptz, jsonb, jsonb, boolean
 ) to authenticated;
 
-create or replace function public.update_draft_institutional_document_metadata(
+-- Metadata edits keep the document and derived audience records synchronized.
+-- Preserve lifecycle state and published_at; processing rows remain ingestion-owned.
+create or replace function public.update_institutional_document_metadata(
   p_document_id uuid,
   p_title text,
   p_description text,
@@ -315,6 +317,8 @@ language plpgsql
 security invoker
 set search_path = ''
 as $$
+declare
+  v_now timestamptz := now();
 begin
   if (select auth.uid()) is null or not (select public.is_admin()) then
     raise exception 'An administrator session is required';
@@ -374,11 +378,15 @@ begin
   from public.documents as d
   where d.id = p_document_id
     and d.uploaded_by = (select auth.uid())
-    and d.status = 'draft'::public.document_status
+    and d.status in (
+      'draft'::public.document_status,
+      'published'::public.document_status,
+      'archived'::public.document_status
+    )
   for update;
 
   if not found then
-    raise exception 'Draft document not found or not editable';
+    raise exception 'Document not found or is still processing';
   end if;
 
   update public.documents
@@ -390,9 +398,14 @@ begin
       target_semesters = p_target_semesters,
       target_sections = p_target_sections,
       expires_at = p_expires_at,
-      updated_at = now()
+      updated_at = v_now
   where id = p_document_id
-    and uploaded_by = (select auth.uid());
+    and uploaded_by = (select auth.uid())
+    and status in (
+      'draft'::public.document_status,
+      'published'::public.document_status,
+      'archived'::public.document_status
+    );
 
   update public.academic_events
   set target_departments = p_target_departments,
@@ -404,18 +417,18 @@ begin
   set target_departments = p_target_departments,
       target_semesters = p_target_semesters,
       target_sections = p_target_sections,
-      updated_at = now()
+  updated_at = v_now
   where source_document_id = p_document_id;
 
   return p_document_id;
 end;
 $$;
 
-revoke all on function public.update_draft_institutional_document_metadata(
+revoke all on function public.update_institutional_document_metadata(
   uuid, text, text, public.document_category, boolean, text[], smallint[],
   text[], timestamptz
 ) from public, anon;
-grant execute on function public.update_draft_institutional_document_metadata(
+grant execute on function public.update_institutional_document_metadata(
   uuid, text, text, public.document_category, boolean, text[], smallint[],
   text[], timestamptz
 ) to authenticated;

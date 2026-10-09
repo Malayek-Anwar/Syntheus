@@ -372,6 +372,8 @@ ${authorizedSources}`
           'finalize_student_chat_response',
           {
             p_conversation_id: resolvedConversationId,
+            p_user_message_id: userMessageId,
+            p_user_content: lastMessage,
             p_assistant_message_id: assistantMessageId,
             p_content: assistantContent,
             p_sources: selectedSources.map((source) => ({

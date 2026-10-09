@@ -345,7 +345,7 @@ export async function updateDocument(payload: UpdateDocumentPayload) {
     }
 
     const { data: documentId, error: updateError } = await auth.supabase.rpc(
-      'update_draft_institutional_document_metadata',
+      'update_institutional_document_metadata',
       {
         p_document_id: payload.id,
         p_title: payload.title,

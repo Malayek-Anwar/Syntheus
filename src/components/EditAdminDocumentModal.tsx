@@ -117,14 +117,14 @@ function EditAdminDocumentModalForm({
 
       const result = await updateDocument({
         id: document.id,
-        title: (formData.get('title') as string) || document.title,
-        description: (formData.get('description') as string) || document.description || null,
+        title: ((formData.get('title') as string) || '').trim(),
+        description: ((formData.get('description') as string) || '').trim() || null,
         category: selectedCategory,
         tracks_completion: tracksCompletion,
         target_departments: targetDepts,
         target_semesters: targetSems,
         target_sections: targetSecs,
-        expires_at: (formData.get('expires_at') as string) || document.expires_at || null,
+        expires_at: (formData.get('expires_at') as string) || null,
       })
 
       if (!result.success) {
