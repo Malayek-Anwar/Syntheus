@@ -249,13 +249,15 @@ export function AdminDocumentDirectory({ documents = [] }: AdminDocumentDirector
 
                 {/* Actions Toolbar */}
                 <div className="flex items-center gap-1.5 flex-wrap sm:flex-nowrap justify-end flex-shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100">
-                  <button
-                    onClick={() => setEditingDoc(doc)}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold rounded-lg shadow-2xs transition-colors cursor-pointer"
-                  >
-                    <span>✏️</span>
-                    <span>Edit</span>
-                  </button>
+                  {isDraft && (
+                    <button
+                      onClick={() => setEditingDoc(doc)}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 text-xs font-semibold rounded-lg shadow-2xs transition-colors cursor-pointer"
+                    >
+                      <span>✏️</span>
+                      <span>Edit</span>
+                    </button>
+                  )}
 
                   {isDraft && (
                     <button

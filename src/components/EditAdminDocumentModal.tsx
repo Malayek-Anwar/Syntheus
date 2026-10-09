@@ -77,9 +77,6 @@ function EditAdminDocumentModalForm({
   const [selectedSems, setSelectedSems] = useState<number[]>(document.target_semesters || [])
   const [selectedSections, setSelectedSections] = useState<string>(document.target_sections?.join(', ') || '')
   const [tracksCompletion, setTracksCompletion] = useState<boolean>(document.tracks_completion || false)
-  const [currentStatus, setCurrentStatus] = useState<'published' | 'draft' | 'archived'>(
-    document.status === 'archived' ? 'archived' : document.status === 'draft' ? 'draft' : 'published'
-  )
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -128,7 +125,6 @@ function EditAdminDocumentModalForm({
         target_semesters: targetSems,
         target_sections: targetSecs,
         expires_at: (formData.get('expires_at') as string) || document.expires_at || null,
-        status: currentStatus,
       })
 
       if (!result.success) {
@@ -158,7 +154,7 @@ function EditAdminDocumentModalForm({
               <span>✏️</span> Edit Institutional Document Metadata
             </h3>
             <p className="text-xs text-gray-500 mt-0.5">
-              Update targeting, categories, completion tracking, and lifecycle status.
+              Update targeting, categories, and completion tracking. Manage lifecycle from the document directory.
             </p>
           </div>
           <button
@@ -171,48 +167,6 @@ function EditAdminDocumentModalForm({
         </div>
 
         <form onSubmit={handleSubmit} className="overflow-y-auto p-6 space-y-6 flex-1">
-          {/* Lifecycle Status */}
-          <div className="bg-[#f0f6f4] border border-[#cce5df] rounded-xl p-3.5 space-y-2">
-            <span className="text-xs font-bold text-[#244b46] uppercase tracking-wider block">
-              Lifecycle Status
-            </span>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setCurrentStatus('published')}
-                className={`py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                  currentStatus === 'published'
-                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                <span>🟢 Published</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setCurrentStatus('draft')}
-                className={`py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                  currentStatus === 'draft'
-                    ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                <span>🟡 Draft</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setCurrentStatus('archived')}
-                className={`py-2 px-3 rounded-lg border text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                  currentStatus === 'archived'
-                    ? 'bg-gray-700 text-white border-gray-700 shadow-2xs'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                <span>📦 Archived</span>
-              </button>
-            </div>
-          </div>
-
           {/* Title and Category */}
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
             <div className="sm:col-span-8">

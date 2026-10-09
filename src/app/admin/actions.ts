@@ -22,7 +22,6 @@ import {
   SIGNED_URL_TTL_SECONDS,
 } from '@/utils/storage'
 import type { DocumentCategory } from '@/types/database'
-import { ALL_DOCUMENT_CATEGORIES } from '@/utils/constants'
 
 export type ExtractedData = {
   documentId: string
@@ -260,137 +259,27 @@ export async function publishDocument(payload: PublishDocumentPayload) {
       payload,
     ) as PublishDocumentPayload
 
-    const supabase = auth.supabase
-    if (!ALL_DOCUMENT_CATEGORIES.includes(payload.category)) {
-      throw new Error('Invalid document category')
-    }
-    if (!payload.title.trim()) throw new Error('Document title is required')
+    const { data: documentId, error } = await auth.supabase.rpc(
+      'publish_institutional_document',
+      {
+        p_document_id: payload.documentId,
+        p_title: payload.title,
+        p_description: payload.description,
+        p_category: payload.category,
+        p_tracks_completion: payload.tracks_completion,
+        p_target_departments: payload.target_departments,
+        p_target_semesters: payload.target_semesters,
+        p_target_sections: payload.target_sections,
+        p_expires_at: payload.expires_at ?? null,
+        p_candidate_events: payload.candidate_events ?? [],
+        p_candidate_timetable: payload.candidate_timetable ?? null,
+        p_is_draft: payload.isDraft ?? false,
+      },
+    )
+    if (error) throw new Error(`Failed to save and publish document: ${error.message}`)
+    if (!documentId) throw new Error('Document publishing returned no document ID')
 
-    const { data: docData, error: docError } = await supabase
-      .from('documents')
-      .select('id, status')
-      .eq('id', payload.documentId)
-      .eq('uploaded_by', auth.admin.id)
-      .in('status', ['processing', 'draft'])
-      .single()
-
-    if (docError || !docData) {
-      throw new Error(`Processing document not found or no longer editable: ${docError?.message ?? ''}`)
-    }
-
-    // Keep the document hidden until all administrator-approved structured data is saved.
-    const { error: updateError } = await supabase
-      .from('documents')
-      .update({
-        title: payload.title,
-        description: payload.description || null,
-        category: payload.category,
-        status: 'draft',
-        tracks_completion: payload.tracks_completion,
-        target_departments: payload.target_departments,
-        target_semesters: payload.target_semesters,
-        target_sections: payload.target_sections,
-        expires_at: payload.expires_at || null,
-        published_at: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', payload.documentId)
-      .eq('uploaded_by', auth.admin.id)
-    if (updateError) throw new Error(`Failed to save reviewed metadata: ${updateError.message}`)
-
-    // Replace structured suggestions on retries so a failed finalize remains safe to retry.
-    const { error: existingEventsError } = await supabase
-      .from('academic_events')
-      .delete()
-      .eq('source_document_id', payload.documentId)
-    if (existingEventsError) throw new Error(`Failed to replace document events: ${existingEventsError.message}`)
-
-    if (payload.candidate_events && payload.candidate_events.length > 0) {
-      const eventRows = payload.candidate_events.map(ev => ({
-        source_document_id: payload.documentId,
-        title: ev.title,
-        description: ev.description || null,
-        event_type: ev.event_type,
-        starts_at: ev.starts_at,
-        ends_at: ev.ends_at || null,
-        all_day: Boolean(ev.all_day),
-        target_departments: payload.target_departments,
-        target_semesters: payload.target_semesters,
-        target_sections: payload.target_sections,
-      }))
-
-      const { error: eventsError } = await supabase
-        .from('academic_events')
-        .insert(eventRows)
-
-      if (eventsError) throw new Error(`Failed to save reviewed events: ${eventsError.message}`)
-    }
-
-    const { data: existingTimetables, error: existingTimetablesError } = await supabase
-      .from('timetables')
-      .select('id')
-      .eq('source_document_id', payload.documentId)
-    if (existingTimetablesError) {
-      throw new Error(`Failed to replace document timetable: ${existingTimetablesError.message}`)
-    }
-    if (existingTimetables.length > 0) {
-      const { error: deleteTimetablesError } = await supabase
-        .from('timetables')
-        .delete()
-        .eq('source_document_id', payload.documentId)
-      if (deleteTimetablesError) {
-        throw new Error(`Failed to replace document timetable: ${deleteTimetablesError.message}`)
-      }
-    }
-
-    if (payload.candidate_timetable && payload.candidate_timetable.entries.length > 0) {
-      const { data: timetableData, error: timetableError } = await supabase
-        .from('timetables')
-        .insert({
-          source_document_id: payload.documentId,
-          name: payload.candidate_timetable.name,
-          target_departments: payload.target_departments,
-          target_semesters: payload.target_semesters,
-          target_sections: payload.target_sections,
-          valid_from: payload.candidate_timetable.valid_from,
-          valid_until: payload.candidate_timetable.valid_until || null,
-          updated_at: new Date().toISOString(),
-        })
-        .select('id')
-        .single()
-
-      if (timetableError || !timetableData) {
-        throw new Error(`Failed to save reviewed timetable: ${timetableError?.message ?? 'No timetable returned'}`)
-      }
-
-      const entryRows = payload.candidate_timetable.entries.map(entry => ({
-        timetable_id: timetableData.id,
-        day_of_week: entry.day_of_week,
-        start_time: entry.start_time,
-        end_time: entry.end_time,
-        subject: entry.subject,
-        room: entry.room || null,
-        instructor: entry.instructor || null,
-      }))
-
-      const { error: entriesError } = await supabase.from('timetable_entries').insert(entryRows)
-      if (entriesError) throw new Error(`Failed to save reviewed timetable entries: ${entriesError.message}`)
-    }
-
-    if (!payload.isDraft) {
-      const { error: publishError } = await supabase
-        .from('documents')
-        .update({
-          status: 'published',
-          published_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', payload.documentId)
-        .eq('uploaded_by', auth.admin.id)
-      if (publishError) throw new Error(`Failed to publish reviewed document: ${publishError.message}`)
-    }
-
-    return { success: true, documentId: payload.documentId }
+    return { success: true, documentId }
   } catch (error: unknown) {
     console.error('Error in publishDocument:', error)
     return { success: false, error: getErrorMessage(error) }
@@ -446,43 +335,32 @@ export type UpdateDocumentPayload = {
   target_semesters: number[] | null
   target_sections: string[] | null
   expires_at?: string | null
-  status?: 'published' | 'draft' | 'archived'
 }
 
 export async function updateDocument(payload: UpdateDocumentPayload) {
   try {
     const auth = await verifyAdminAction()
-    if (!auth.authorized) {
+    if (!auth.authorized || !auth.admin) {
       return { success: false, error: auth.error || '403 Forbidden: Admin privileges required' }
     }
 
-    const supabase = auth.supabase
-
-    const updatePayload: Record<string, unknown> = {
-      title: payload.title,
-      description: payload.description || null,
-      category: payload.category,
-      tracks_completion: payload.tracks_completion,
-      target_departments: payload.target_departments,
-      target_semesters: payload.target_semesters,
-      target_sections: payload.target_sections,
-      expires_at: payload.expires_at || null,
-      updated_at: new Date().toISOString(),
-    }
-
-    if (payload.status) {
-      updatePayload.status = payload.status
-      if (payload.status === 'published') {
-        updatePayload.published_at = new Date().toISOString()
-      }
-    }
-
-    const { error: updateError } = await supabase
-      .from('documents')
-      .update(updatePayload)
-      .eq('id', payload.id)
+    const { data: documentId, error: updateError } = await auth.supabase.rpc(
+      'update_draft_institutional_document_metadata',
+      {
+        p_document_id: payload.id,
+        p_title: payload.title,
+        p_description: payload.description ?? null,
+        p_category: payload.category,
+        p_tracks_completion: payload.tracks_completion,
+        p_target_departments: payload.target_departments,
+        p_target_semesters: payload.target_semesters,
+        p_target_sections: payload.target_sections,
+        p_expires_at: payload.expires_at ?? null,
+      },
+    )
 
     if (updateError) throw new Error(updateError.message)
+    if (!documentId) throw new Error('Document metadata update returned no document ID')
 
     return { success: true }
   } catch (error: unknown) {
@@ -494,22 +372,39 @@ export async function updateDocument(payload: UpdateDocumentPayload) {
 export async function toggleDocumentLifecycle(id: string, action: 'publish' | 'draft' | 'archive' | 'restore') {
   try {
     const auth = await verifyAdminAction()
-    if (!auth.authorized) {
+    if (!auth.authorized || !auth.admin) {
       return { success: false, error: auth.error || '403 Forbidden: Admin privileges required' }
     }
 
     const supabase = auth.supabase
     const status = action === 'publish' || action === 'restore' ? 'published' : action === 'draft' ? 'draft' : 'archived'
+    const allowedCurrentStatuses = action === 'publish'
+      ? ['draft']
+      : action === 'restore'
+        ? ['archived']
+        : action === 'draft' || action === 'archive'
+          ? ['published']
+          : []
 
-    const { error } = await supabase
+    if (allowedCurrentStatuses.length === 0) {
+      throw new Error('Invalid document lifecycle action')
+    }
+
+    const { data: document, error } = await supabase
       .from('documents')
       .update({
         status,
+        ...(status === 'published' ? { published_at: new Date().toISOString() } : {}),
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
+      .eq('uploaded_by', auth.admin.id)
+      .in('status', allowedCurrentStatuses)
+      .select('id')
+      .maybeSingle()
 
     if (error) throw new Error(error.message)
+    if (!document) throw new Error('Document not found or lifecycle transition is not allowed')
 
     return { success: true }
   } catch (error: unknown) {
